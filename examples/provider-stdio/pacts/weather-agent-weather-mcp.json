@@ -1,0 +1,74 @@
+{
+  "consumer": { "name": "weather-agent" },
+  "provider": { "name": "weather-mcp" },
+  "interactions": [
+    {
+      "type": "Synchronous/Messages",
+      "key": "get_weather_melbourne",
+      "description": "a request for the Melbourne weather",
+      "pending": false,
+      "contents": {
+        "pact:content-type": "application/mcp+json",
+        "mcp": {
+          "schemaVersion": "0",
+          "operation": "tools/call",
+          "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+          "response": {
+            "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+            "isError": false
+          },
+          "server": { "transport": "stdio" }
+        }
+      },
+      "matchingRules": { "response": {} }
+    },
+    {
+      "type": "Synchronous/Messages",
+      "key": "get_weather_sydney_type_matched",
+      "description": "a request for the Sydney weather, asserting only the response shape",
+      "pending": false,
+      "contents": {
+        "pact:content-type": "application/mcp+json",
+        "mcp": {
+          "schemaVersion": "0",
+          "operation": "tools/call",
+          "request": { "name": "get_weather", "arguments": { "city": "Sydney" } },
+          "response": {
+            "content": [ { "type": "text", "text": "placeholder - type matcher accepts any string" } ],
+            "isError": false
+          },
+          "server": { "transport": "stdio" }
+        }
+      },
+      "matchingRules": {
+        "response": { "$.content[0].text": { "matchers": [ { "match": "type" } ] } }
+      }
+    },
+    {
+      "type": "Synchronous/Messages",
+      "key": "get_weather_unknown_city_is_a_tool_error",
+      "description": "a request for an unknown city returns a tool-level error",
+      "pending": false,
+      "contents": {
+        "pact:content-type": "application/mcp+json",
+        "mcp": {
+          "schemaVersion": "0",
+          "operation": "tools/call",
+          "request": { "name": "get_weather", "arguments": { "city": "Atlantis" } },
+          "response": {
+            "content": [ { "type": "text", "text": "placeholder - type matcher accepts any string" } ],
+            "isError": true
+          },
+          "server": { "transport": "stdio" }
+        }
+      },
+      "matchingRules": {
+        "response": { "$.content[0].text": { "matchers": [ { "match": "type" } ] } }
+      }
+    }
+  ],
+  "metadata": {
+    "pactSpecification": { "version": "4.0" },
+    "plugins": [ { "name": "mcp", "version": "0.1.0" } ]
+  }
+}
