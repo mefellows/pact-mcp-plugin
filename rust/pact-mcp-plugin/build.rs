@@ -10,7 +10,10 @@ fn main() {
 
     tonic_build::configure()
         .build_server(true)
-        .build_client(false)
+        // Client stubs are generated too: used by tests/grpc_bootstrap.rs, a
+        // driver-style test that spawns the real plugin binary and calls it
+        // over real gRPC (task 0.3).
+        .build_client(true)
         .compile_protos(&["proto/plugin.proto"], &["proto"])
         .expect("failed to compile plugin.proto");
 
