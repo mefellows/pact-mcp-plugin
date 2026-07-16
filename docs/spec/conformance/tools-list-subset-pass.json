@@ -1,0 +1,22 @@
+{
+  "description": "consumer asserts one tool by name; server exposes additional tools => subset pass",
+  "operation": "tools/list",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/list",
+      "request": {},
+      "response": { "tools": [ { "name": "get_weather", "inputSchema": { "type": "object", "properties": { "city": { "type": "string" } } } } ] }
+    },
+    "matchingRules": { "response": {} },
+    "generators": {}
+  },
+  "actual": {
+    "tools": [
+      { "name": "get_forecast", "inputSchema": { "type": "object" } },
+      { "name": "get_weather", "inputSchema": { "type": "object", "properties": { "city": { "type": "string" } } } },
+      { "name": "list_stations", "inputSchema": { "type": "object" } }
+    ]
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

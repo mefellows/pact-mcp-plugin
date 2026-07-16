@@ -1,0 +1,16 @@
+{
+  "description": "no matcher and the literal text differs => mismatch at the text path",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+    },
+    "matchingRules": { "response": {} },
+    "generators": {}
+  },
+  "actual": { "content": [ { "type": "text", "text": "Raining, 9C" } ], "isError": false },
+  "expected": { "match": false, "mismatchPaths": [ "$.content[0].text" ] }
+}

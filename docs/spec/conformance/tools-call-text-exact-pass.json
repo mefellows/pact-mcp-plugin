@@ -1,0 +1,16 @@
+{
+  "description": "literal text block matches exactly (no matcher)",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+    },
+    "matchingRules": { "response": {} },
+    "generators": {}
+  },
+  "actual": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

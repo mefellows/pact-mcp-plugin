@@ -1,0 +1,16 @@
+{
+  "description": "JSON-RPC error result: code matched exactly, message matched by type",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": 42 } },
+      "response": { "error": { "code": -32602, "message": "Invalid params" } }
+    },
+    "matchingRules": { "response": { "$.error.message": { "matchers": [ { "match": "type" } ] } } },
+    "generators": {}
+  },
+  "actual": { "error": { "code": -32602, "message": "city must be a string" } },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

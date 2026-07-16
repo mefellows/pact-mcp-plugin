@@ -1,0 +1,16 @@
+{
+  "description": "type matcher on text accepts a different string of the same type",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+    },
+    "matchingRules": { "response": { "$.content[0].text": { "matchers": [ { "match": "type" } ] } } },
+    "generators": {}
+  },
+  "actual": { "content": [ { "type": "text", "text": "Overcast, 14C" } ], "isError": false },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

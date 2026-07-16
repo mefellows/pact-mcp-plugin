@@ -1,0 +1,16 @@
+{
+  "description": "expected success but server returned a tool-level error => mismatch at isError",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+    },
+    "matchingRules": { "response": { "$.content[0].text": { "matchers": [ { "match": "type" } ] } } },
+    "generators": {}
+  },
+  "actual": { "content": [ { "type": "text", "text": "upstream weather API unavailable" } ], "isError": true },
+  "expected": { "match": false, "mismatchPaths": [ "$.isError" ] }
+}
