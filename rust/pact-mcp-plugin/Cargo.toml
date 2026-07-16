@@ -25,6 +25,12 @@ async-trait = "0.1"
 rmcp = { version = "2.2", features = ["client", "transport-child-process", "server", "transport-io"] }
 futures = "0.3"
 tokio-stream = "0.1"
+# Real Pact matcher-definition DSL parser + DocPath — the SAME crate/functions
+# pact-protobuf-plugin uses (pact_models::matchingrules::expressions), so the
+# consumer authoring convention (inline `matching(type, 'x')` / `notEmpty(...)`
+# strings) is parsed identically. See ADR 0004.
+pact_models = "1.3"
+itertools = "0.15"
 
 [build-dependencies]
 tonic-build = "0.12"

@@ -77,6 +77,34 @@ pub fn compare_response(
     }
 }
 
+/// Request matching for the mock server (docs/spec/matching-semantics.md §4):
+/// select the interaction whose `mcp.request.name` equals the incoming tool
+/// name AND whose `arguments` match under `matchingRules.request` (default
+/// exact for literals, matchers as authored). Returns the match result; an
+/// empty mismatch list means the incoming call matches this interaction.
+pub fn match_tools_call_request(expected: &Value, actual: &Value, rules: &Rules) -> MatchResult {
+    let mut mismatches = Vec::new();
+
+    let expected_name = expected.get("name").and_then(Value::as_str).unwrap_or("");
+    let actual_name = actual.get("name").and_then(Value::as_str).unwrap_or("");
+    if expected_name != actual_name {
+        mismatches.push(Mismatch {
+            path: "$.name".to_string(),
+            expected: Value::from(expected_name),
+            actual: Value::from(actual_name),
+            message: format!("expected tool name \"{expected_name}\" but got \"{actual_name}\""),
+        });
+        // Name mismatch is decisive — don't bother diffing arguments.
+        return MatchResult { mismatches };
+    }
+
+    let expected_args = expected.get("arguments").cloned().unwrap_or(Value::Null);
+    let actual_args = actual.get("arguments").cloned().unwrap_or(Value::Null);
+    compare_structured("$.arguments", &expected_args, &actual_args, rules, &mut mismatches);
+
+    MatchResult { mismatches }
+}
+
 fn compare_tools_call(expected: &Value, actual: &Value, rules: &Rules) -> MatchResult {
     let mut mismatches = Vec::new();
 
@@ -375,4 +403,45 @@ fn values_match(path: &str, expected: &Value, actual: &Value, rules: &Rules) -> 
 
 fn same_json_type(a: &Value, b: &Value) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_matches_on_name_and_exact_arguments() {
+        let expected = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } });
+        let actual = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } });
+        let result = match_tools_call_request(&expected, &actual, &Rules::default());
+        assert!(result.is_match());
+    }
+
+    #[test]
+    fn request_mismatch_on_wrong_tool_name() {
+        let expected = serde_json::json!({ "name": "get_weather", "arguments": {} });
+        let actual = serde_json::json!({ "name": "list_stations", "arguments": {} });
+        let result = match_tools_call_request(&expected, &actual, &Rules::default());
+        assert!(!result.is_match());
+        assert!(result.mismatch_paths().contains("$.name"));
+    }
+
+    #[test]
+    fn request_mismatch_on_wrong_argument_value() {
+        let expected = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } });
+        let actual = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Sydney" } });
+        let result = match_tools_call_request(&expected, &actual, &Rules::default());
+        assert!(!result.is_match());
+        assert!(result.mismatch_paths().contains("$.arguments.city"));
+    }
+
+    #[test]
+    fn request_argument_type_matcher_accepts_any_string() {
+        let expected = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } });
+        let actual = serde_json::json!({ "name": "get_weather", "arguments": { "city": "Perth" } });
+        let rules_value = serde_json::json!({ "$.arguments.city": { "matchers": [ { "match": "type" } ] } });
+        let rules = Rules::new(Some(&rules_value));
+        let result = match_tools_call_request(&expected, &actual, &rules);
+        assert!(result.is_match(), "type matcher should accept a different string: {:?}", result.mismatches);
+    }
 }

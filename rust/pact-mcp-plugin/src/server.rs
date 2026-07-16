@@ -145,7 +145,7 @@ impl PactPlugin for McpPlugin {
                 content_type_hint: body::ContentTypeHint::Text as i32,
             }),
             rules: configured.rules,
-            generators: HashMap::new(),
+            generators: configured.generators,
             message_metadata: None,
             plugin_configuration: None,
             interaction_markup: String::new(),

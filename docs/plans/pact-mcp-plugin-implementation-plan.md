@@ -79,7 +79,7 @@ Key properties:
 ## 2. Reference implementations (study before coding)
 
 **VERIFY UPSTREAM** — read and mirror:
-1. **`pact-protobuf-plugin`** (pact-foundation, Rust) — canonical Rust plugin implementing transport + content matcher + mock server + verifier. Closest structural template (proto wiring, tonic bootstrap, startup handshake, catalogue).
+1. **`pact-protobuf-plugin`** (pactflow org — `pactflow/pact-protobuf-plugin`, NOT `pact-foundation`, Rust) — canonical Rust plugin implementing transport + content matcher + mock server + verifier. Closest structural template (proto wiring, tonic bootstrap, startup handshake, catalogue).
 2. **`pact-plugins`** (pact-foundation) — `docs/` + `plugin.proto` (`io.pact.plugin.PactPlugin`). Defines every gRPC method.
 3. **`pact-graphql-plugin`** (mefellows, Rust) — pattern for a thin native helper (`js/pact-*-helper`) + packaging/DX.
 4. **`rmcp`** (official Rust MCP SDK) — transports (stdio child-process, Streamable HTTP w/ custom headers) + typed protocol models. **VERIFY** the surface; fall back to raw `serde_json` JSON-RPC over the transport if gaps exist.
