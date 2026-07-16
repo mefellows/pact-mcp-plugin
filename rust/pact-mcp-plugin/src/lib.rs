@@ -2,6 +2,7 @@ pub mod catalogue;
 pub mod config;
 pub mod content;
 pub mod mcp;
+pub mod mock;
 pub mod proto;
 pub mod server;
 pub mod transport;

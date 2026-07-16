@@ -36,12 +36,26 @@ No deviation from the planned module layout. `config.rs` was added (not
 explicitly named in §3's file tree) to hold the `ConfigureInteraction` <->
 proto glue separately from the gRPC dispatch itself.
 
-## Deferred/stubbed in this run (see final report for details)
-- `StartMockServer` / `ShutdownMockServer` / `GetMockServerResults` (plan
-  task 1.8's stdio mock mode) — stubbed as `Status::unimplemented`.
-- Streamable HTTP + auth (Phase 2) — not started; Phase 1 was prioritized per
-  the run's instructions.
-- `ConfigureInteraction`'s `contentsConfig` shape / matching-rule path
-  convention is a documented best-effort assumption (ADR 0004), unverified
-  against a real pact-js/pact-jvm consumer round trip — no adapter work was in
-  scope this run.
+## stdio mock mode (task 1.8) — IMPLEMENTED (follow-up run)
+- `pact-mcp-plugin mock --pact <file> [--results <file>]` runs a real MCP server
+  over stdio (`src/mock.rs`, rmcp `ServerHandler`), synthesized from a pact.
+- `StartMockServer` / `ShutdownMockServer` / `GetMockServerResults` are wired
+  (`src/server.rs`). Because a stdio mock is spawned by the client (no listening
+  socket), `StartMockServer` returns the spawnable `{command, args, env}`
+  handoff as JSON in `MockServerDetails.address` (the proto has no first-class
+  field for a spawn handoff — this is the pragmatic encoding, mirroring the
+  plan's §7.2 "helper returns `{command,args,env}`"). `port` is 0. The spawned
+  mock writes results to a file that Get/Shutdown read back.
+- Verified end-to-end by a real `@modelcontextprotocol/sdk` client
+  (`examples/consumer-stdio-mock`, `tests/consumer_stdio_mock.rs`).
+
+## Deferred/stubbed
+- Streamable HTTP + auth (Phase 2) — not started; Phase 1 was prioritized.
+- `ConfigureInteraction`'s input contract + two-part response shape are now
+  CONFIRMED against pact-protobuf-plugin source and a live pact-js run (ADR
+  0004), but the full live FFI round trip is BLOCKED (pact-core never routes
+  `application/mcp+json` to our ConfigureInteraction; native trace logs
+  unavailable to diagnose). See ADR 0004 for CONFIRMED vs residual risk.
+- Request-side matchers are not yet carried into provider verification / the
+  mock from a persisted pact (the mock uses exact argument matching); only
+  response-side matchers are exercised. Fixtures use literal request args.

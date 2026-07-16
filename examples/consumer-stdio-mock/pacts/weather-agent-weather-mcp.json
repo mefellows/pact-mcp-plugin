@@ -1,0 +1,28 @@
+{
+  "consumer": { "name": "weather-agent" },
+  "provider": { "name": "weather-mcp" },
+  "interactions": [
+    {
+      "type": "Synchronous/Messages",
+      "key": "get_weather_melbourne",
+      "description": "a request for the Melbourne weather",
+      "contents": {
+        "pact:content-type": "application/mcp+json",
+        "mcp": {
+          "schemaVersion": "0",
+          "operation": "tools/call",
+          "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+          "response": {
+            "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+            "isError": false
+          }
+        }
+      },
+      "matchingRules": { "response": {} }
+    }
+  ],
+  "metadata": {
+    "pactSpecification": { "version": "4.0" },
+    "plugins": [ { "name": "mcp", "version": "0.1.0" } ]
+  }
+}

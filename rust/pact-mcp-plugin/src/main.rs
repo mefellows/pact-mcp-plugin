@@ -1,14 +1,20 @@
 //! pact-mcp-plugin entry point.
 //!
-//! Mirrors the pact-protobuf-plugin bootstrap pattern (see
-//! docs/decisions/0001-vendored-plugin-proto.md and the plan §6):
-//! bind an ephemeral TCP port, print exactly one stdout line
-//! `{"port":<n>, "serverKey":"<key>"}`, then serve the PactPlugin gRPC service
-//! over that port with every call's `authorization` metadata validated against
-//! the printed serverKey.
+//! Two modes:
+//! - default (no subcommand): the Pact plugin gRPC server. Mirrors the
+//!   pact-protobuf-plugin bootstrap (docs/decisions/0001, plan §6): bind an
+//!   ephemeral TCP port, print exactly one stdout line
+//!   `{"port":<n>, "serverKey":"<key>"}`, then serve `PactPlugin` with every
+//!   call's `authorization` metadata validated against the printed serverKey.
+//! - `mock --pact <file> [--results <file>]`: run a REAL MCP server over this
+//!   process's own stdio, synthesized from a pact file (plan task 1.8 / §7.2).
+//!   A real MCP client spawns this as its stdio server.
 
+use pact_mcp_plugin::mock::{write_results, MockServer};
 use pact_mcp_plugin::proto::pact_plugin_server::PactPluginServer;
 use pact_mcp_plugin::server::McpPlugin;
+use rmcp::transport::io::stdio;
+use rmcp::ServiceExt;
 use tonic::transport::Server;
 use uuid::Uuid;
 
@@ -35,6 +41,46 @@ impl tonic::service::Interceptor for AuthInterceptor {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("mock") {
+        return run_mock(&args[1..]).await;
+    }
+
+    run_plugin_server().await
+}
+
+/// `mock --pact <file> [--results <file>]` — serve a synthesized MCP server over
+/// stdio. Blocks until the client disconnects, then flushes results.
+async fn run_mock(args: &[String]) -> anyhow::Result<()> {
+    let mut pact_path: Option<String> = None;
+    let mut results_path: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--pact" => pact_path = it.next().cloned(),
+            "--results" => results_path = it.next().cloned(),
+            other => anyhow::bail!("unknown mock argument: {other}"),
+        }
+    }
+    let pact_path = pact_path.ok_or_else(|| anyhow::anyhow!("mock mode requires --pact <file>"))?;
+
+    let pact_json = std::fs::read_to_string(&pact_path)?;
+    let mock = MockServer::from_pact_json(&pact_json)?;
+    let results = mock.results_handle();
+
+    // Serve MCP over this process's stdio; the client drives initialize/list/call.
+    let running = mock.serve(stdio()).await?;
+    let _ = running.waiting().await;
+
+    // Flush results for GetMockServerResults / ShutdownMockServer to read.
+    if let Some(path) = results_path {
+        let snapshot = results.lock().map(|g| g.clone()).unwrap_or_default();
+        write_results(&path, &snapshot)?;
+    }
+    Ok(())
+}
+
+async fn run_plugin_server() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let server_key = Uuid::new_v4().to_string();
@@ -43,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     // to stderr (tracing above is configured with_writer(stderr)).
     println!("{{\"port\":{}, \"serverKey\":\"{}\"}}", addr.port(), server_key);
 
-    let plugin = McpPlugin;
+    let plugin = McpPlugin::default();
     let interceptor = AuthInterceptor { server_key };
 
     Server::builder()

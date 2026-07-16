@@ -108,6 +108,75 @@ async fn init_plugin_rejects_an_invalid_server_key() {
     let _ = child.kill().await;
 }
 
+/// Task 1.8 — StartMockServer returns a spawnable stdio handoff, and
+/// GetMockServerResults reads back results by key.
+#[tokio::test]
+async fn start_mock_server_returns_a_spawnable_stdio_handoff() {
+    use pact_mcp_plugin::proto::*;
+    let (mut child, handshake) = spawn_plugin().await;
+    let channel = tonic::transport::Endpoint::new(format!("http://127.0.0.1:{}", handshake.port))
+        .unwrap()
+        .connect()
+        .await
+        .unwrap();
+    let mut client = pact_mcp_plugin::proto::pact_plugin_client::PactPluginClient::with_interceptor(
+        channel,
+        move |mut req: tonic::Request<()>| {
+            req.metadata_mut().insert("authorization", handshake.server_key.parse().unwrap());
+            Ok(req)
+        },
+    );
+
+    let pact = serde_json::json!({
+        "interactions": [ { "description": "x", "contents": { "mcp": {
+            "operation": "tools/call",
+            "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+            "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+        }}}]
+    })
+    .to_string();
+
+    let resp = client
+        .start_mock_server(StartMockServerRequest {
+            host_interface: String::new(),
+            port: 0,
+            tls: false,
+            pact,
+            test_context: None,
+        })
+        .await
+        .expect("StartMockServer failed")
+        .into_inner();
+
+    let details = match resp.response {
+        Some(start_mock_server_response::Response::Details(d)) => d,
+        other => panic!("expected mock server details, got {other:?}"),
+    };
+    // The `address` carries the spawnable {command, args, env} handoff.
+    let handoff: serde_json::Value = serde_json::from_str(&details.address).expect("handoff is JSON");
+    assert_eq!(handoff["transport"], "stdio");
+    assert!(handoff["args"].as_array().unwrap().iter().any(|a| a == "mock"));
+
+    // No results yet (nothing has spawned the mock).
+    let results = client
+        .get_mock_server_results(MockServerRequest { server_key: details.key.clone() })
+        .await
+        .expect("GetMockServerResults failed")
+        .into_inner();
+    assert!(results.ok, "empty results should be ok");
+    assert!(results.results.is_empty());
+
+    // Shutdown returns results and cleans up.
+    let shutdown = client
+        .shutdown_mock_server(ShutdownMockServerRequest { server_key: details.key })
+        .await
+        .expect("ShutdownMockServer failed")
+        .into_inner();
+    assert!(shutdown.ok);
+
+    let _ = child.kill().await;
+}
+
 /// Convert a serde_json Value into a prost_types Struct/Value, mimicking exactly
 /// what pact core's FFI hands the plugin as `contentsConfig` (a
 /// google.protobuf.Struct) on `ConfigureInteraction`.

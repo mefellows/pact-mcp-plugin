@@ -4,10 +4,11 @@
 //! `CompareContents`, `GenerateContent`, `PrepareInteractionForVerification`,
 //! `VerifyInteraction` (stdio only) are implemented for real.
 //!
-//! `StartMockServer` / `ShutdownMockServer` / `GetMockServerResults` are
-//! **stubbed** (return `Status::unimplemented`) — the stdio mock-mode CLI
-//! (plan task 1.8) is not wired into the gRPC surface in this run. See the
-//! final report for details.
+//! `StartMockServer` / `ShutdownMockServer` / `GetMockServerResults` implement
+//! the stdio mock handoff (plan task 1.8 / §7.2): StartMockServer persists the
+//! pact and returns a spawnable `{command, args, env}` (the client execs the
+//! `mock` CLI subcommand as its stdio server); the mock writes results to a
+//! file that Get/Shutdown read back.
 
 use crate::catalogue;
 use crate::config::{configure_interaction, rules_value};
@@ -16,10 +17,22 @@ use crate::proto::pact_plugin_server::PactPlugin;
 use crate::proto::*;
 use crate::verify::{verify_interaction_stdio, StdioServerConfig};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tonic::{Request, Response, Status};
 
-#[derive(Default)]
-pub struct McpPlugin;
+/// A prepared stdio mock session: where its pact + results files live so the
+/// spawnable mock CLI can write results and Get/Shutdown can read them.
+#[derive(Clone)]
+struct MockSession {
+    dir: PathBuf,
+    results_path: PathBuf,
+}
+
+#[derive(Default, Clone)]
+pub struct McpPlugin {
+    sessions: Arc<Mutex<HashMap<String, MockSession>>>,
+}
 
 fn struct_to_value(s: &prost_types::Struct) -> serde_json::Value {
     // prost_types::Struct <-> serde_json::Value conversion. prost-types 0.13
@@ -213,25 +226,83 @@ impl PactPlugin for McpPlugin {
 
     async fn start_mock_server(
         &self,
-        _request: Request<StartMockServerRequest>,
+        request: Request<StartMockServerRequest>,
     ) -> Result<Response<StartMockServerResponse>, Status> {
-        Err(Status::unimplemented(
-            "StartMockServer is not implemented in this Phase 1 build; see plan task 1.8 and the final report",
-        ))
+        // stdio MCP mocks are SPAWNED by the client (there is no listening
+        // socket), so instead of a running server we return a spawnable handoff
+        // (§7.2): we persist the pact to a session dir, and return the
+        // `{command, args, env}` the client should exec, encoded as JSON in the
+        // `address` field (the proto has no first-class field for it — see
+        // ADR 0005 note). The spawned `mock` CLI writes results to a file that
+        // Get/ShutdownMockServer read back.
+        let req = request.into_inner();
+        let key = uuid::Uuid::new_v4().to_string();
+        let dir = std::env::temp_dir().join(format!("pact-mcp-mock-{key}"));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return Ok(Response::new(StartMockServerResponse {
+                response: Some(start_mock_server_response::Response::Error(e.to_string())),
+            }));
+        }
+        let pact_path = dir.join("pact.json");
+        let results_path = dir.join("results.json");
+        if let Err(e) = std::fs::write(&pact_path, &req.pact) {
+            return Ok(Response::new(StartMockServerResponse {
+                response: Some(start_mock_server_response::Response::Error(e.to_string())),
+            }));
+        }
+
+        let exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "pact-mcp-plugin".to_string());
+        let handoff = serde_json::json!({
+            "transport": "stdio",
+            "command": exe,
+            "args": ["mock", "--pact", pact_path.to_string_lossy(), "--results", results_path.to_string_lossy()],
+            "env": {},
+        });
+
+        self.sessions.lock().unwrap().insert(
+            key.clone(),
+            MockSession { dir, results_path },
+        );
+
+        Ok(Response::new(StartMockServerResponse {
+            response: Some(start_mock_server_response::Response::Details(MockServerDetails {
+                key,
+                port: 0,
+                address: handoff.to_string(),
+            })),
+        }))
     }
 
     async fn shutdown_mock_server(
         &self,
-        _request: Request<ShutdownMockServerRequest>,
+        request: Request<ShutdownMockServerRequest>,
     ) -> Result<Response<ShutdownMockServerResponse>, Status> {
-        Err(Status::unimplemented("ShutdownMockServer is not implemented in this Phase 1 build"))
+        let key = request.into_inner().server_key;
+        let session = self.sessions.lock().unwrap().remove(&key);
+        let results = match &session {
+            Some(s) => read_mock_results(&s.results_path),
+            None => vec![],
+        };
+        let ok = results.iter().all(|r| r.error.is_empty() && r.mismatches.is_empty());
+        if let Some(s) = session {
+            let _ = std::fs::remove_dir_all(&s.dir);
+        }
+        Ok(Response::new(ShutdownMockServerResponse { ok, results }))
     }
 
     async fn get_mock_server_results(
         &self,
-        _request: Request<MockServerRequest>,
+        request: Request<MockServerRequest>,
     ) -> Result<Response<MockServerResults>, Status> {
-        Err(Status::unimplemented("GetMockServerResults is not implemented in this Phase 1 build"))
+        let key = request.into_inner().server_key;
+        let results = match self.sessions.lock().unwrap().get(&key) {
+            Some(s) => read_mock_results(&s.results_path),
+            None => return Err(Status::not_found(format!("no mock session for key `{key}`"))),
+        };
+        let ok = results.iter().all(|r| r.error.is_empty() && r.mismatches.is_empty());
+        Ok(Response::new(MockServerResults { ok, results }))
     }
 
     async fn prepare_interaction_for_verification(
@@ -308,6 +379,36 @@ impl PactPlugin for McpPlugin {
             })),
         }))
     }
+}
+
+/// Read the mock CLI's results file (JSON array of `mock::MockResult`) and map
+/// each to the proto `MockServerResult`. A missing file (mock still running /
+/// no requests yet) yields an empty list.
+fn read_mock_results(path: &std::path::Path) -> Vec<MockServerResult> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    let parsed: Vec<crate::mock::MockResult> = serde_json::from_str(&raw).unwrap_or_default();
+    parsed
+        .into_iter()
+        .map(|r| MockServerResult {
+            path: r.path,
+            error: r.error.unwrap_or_default(),
+            mismatches: r
+                .mismatches
+                .into_iter()
+                .map(|p| ContentMismatch {
+                    expected: None,
+                    actual: None,
+                    mismatch: format!("no interaction matched at {p}"),
+                    path: p,
+                    diff: String::new(),
+                    mismatch_type: "body".to_string(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 fn decode_body<T: serde::de::DeserializeOwned>(body: &Body) -> Result<T, String> {
