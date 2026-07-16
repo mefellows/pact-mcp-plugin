@@ -107,3 +107,115 @@ async fn init_plugin_rejects_an_invalid_server_key() {
 
     let _ = child.kill().await;
 }
+
+/// Convert a serde_json Value into a prost_types Struct/Value, mimicking exactly
+/// what pact core's FFI hands the plugin as `contentsConfig` (a
+/// google.protobuf.Struct) on `ConfigureInteraction`.
+fn json_to_prost_struct(v: &serde_json::Value) -> prost_types::Struct {
+    prost_types::Struct {
+        fields: v
+            .as_object()
+            .map(|m| m.iter().map(|(k, val)| (k.clone(), json_to_prost_value(val))).collect())
+            .unwrap_or_default(),
+    }
+}
+
+fn json_to_prost_value(v: &serde_json::Value) -> prost_types::Value {
+    use prost_types::value::Kind;
+    let kind = match v {
+        serde_json::Value::Null => Kind::NullValue(0),
+        serde_json::Value::Bool(b) => Kind::BoolValue(*b),
+        serde_json::Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::String(s) => Kind::StringValue(s.clone()),
+        serde_json::Value::Array(a) => Kind::ListValue(prost_types::ListValue {
+            values: a.iter().map(json_to_prost_value).collect(),
+        }),
+        serde_json::Value::Object(_) => Kind::StructValue(json_to_prost_struct(v)),
+    };
+    prost_types::Value { kind: Some(kind) }
+}
+
+/// Task A — direct-gRPC ConfigureInteraction contract test.
+///
+/// The live pact-js FFI round trip was BLOCKED (pact-core loads the plugin and
+/// calls InitPlugin, but never routes `application/mcp+json` contents to our
+/// ConfigureInteraction — see ADR 0004). This test instead exercises the exact
+/// gRPC call pact core would make: it hands the plugin a `contentsConfig`
+/// Struct (with an inline `matching(type, ...)` matcher) and asserts the plugin
+/// returns the correct TWO-part synchronous-message response (request +
+/// response), each with its own body/rules — the shape verified against
+/// pact-protobuf-plugin's source.
+#[tokio::test]
+async fn configure_interaction_returns_two_part_sync_message_with_stripped_matchers() {
+    let (mut child, handshake) = spawn_plugin().await;
+
+    let endpoint = format!("http://127.0.0.1:{}", handshake.port);
+    let channel = tonic::transport::Endpoint::new(endpoint)
+        .expect("valid endpoint")
+        .connect()
+        .await
+        .expect("failed to connect to spawned plugin");
+
+    let mut client = pact_mcp_plugin::proto::pact_plugin_client::PactPluginClient::with_interceptor(
+        channel,
+        move |mut req: tonic::Request<()>| {
+            req.metadata_mut().insert("authorization", handshake.server_key.parse().unwrap());
+            Ok(req)
+        },
+    );
+
+    let contents_config = serde_json::json!({
+        "pact:content-type": "application/mcp+json",
+        "mcp": {
+            "operation": "tools/call",
+            "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+            "response": { "content": [ { "type": "text", "text": "matching(type, 'Sunny, 22C')" } ], "isError": false },
+            "server": { "transport": "stdio" }
+        }
+    });
+
+    let response = client
+        .configure_interaction(pact_mcp_plugin::proto::ConfigureInteractionRequest {
+            content_type: "application/mcp+json".to_string(),
+            contents_config: Some(json_to_prost_struct(&contents_config)),
+        })
+        .await
+        .expect("ConfigureInteraction call failed")
+        .into_inner();
+
+    assert_eq!(response.error, "", "expected no configure error");
+    assert_eq!(response.interaction.len(), 2, "expected request + response parts");
+
+    let request_part = response.interaction.iter().find(|i| i.part_name == "request").expect("request part");
+    let response_part = response.interaction.iter().find(|i| i.part_name == "response").expect("response part");
+
+    // Request part body carries the tools/call params, no rules.
+    let request_body: serde_json::Value =
+        serde_json::from_slice(request_part.contents.as_ref().unwrap().content.as_ref().unwrap()).unwrap();
+    assert_eq!(request_body, serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } }));
+    assert!(request_part.rules.is_empty(), "request part has no matchers");
+
+    // Response part body has the DSL stripped to the example value, plus a rule.
+    let response_body: serde_json::Value =
+        serde_json::from_slice(response_part.contents.as_ref().unwrap().content.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        response_body,
+        serde_json::json!({ "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false })
+    );
+    assert!(response_part.rules.contains_key("$.content[0].text"), "expected a type matcher rule at $.content[0].text");
+    assert_eq!(response_part.rules["$.content[0].text"].rule[0].r#type, "type");
+
+    // operation is persisted in the interaction's pluginConfiguration.
+    let op = response_part
+        .plugin_configuration
+        .as_ref()
+        .and_then(|pc| pc.interaction_configuration.as_ref())
+        .and_then(|s| s.fields.get("operation"))
+        .and_then(|v| match &v.kind {
+            Some(prost_types::value::Kind::StringValue(s)) => Some(s.clone()),
+            _ => None,
+        });
+    assert_eq!(op.as_deref(), Some("tools/call"));
+
+    let _ = child.kill().await;
+}

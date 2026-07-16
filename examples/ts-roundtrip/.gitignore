@@ -1,0 +1,4 @@
+node_modules/
+pacts/
+out.log
+err.log

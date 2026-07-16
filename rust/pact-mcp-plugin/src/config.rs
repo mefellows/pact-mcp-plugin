@@ -34,12 +34,30 @@ use pact_models::path_exp::DocPath;
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// One part (request or response) of a configured synchronous-message
+/// interaction, as pact core requires two `InteractionResponse`s per plugin
+/// sync message (VERIFIED via the live pact-js round trip — see ADR 0004).
+#[derive(Debug)]
+pub struct ConfiguredPart {
+    /// The stripped (example-value) body for this part, serialized as JSON.
+    pub body_bytes: Vec<u8>,
+    /// The stripped body as a `Value` (for our own fragment reconstruction/tests).
+    pub body: serde_json::Value,
+    /// Matching rules keyed by `$.<path>` rooted at THIS part's body.
+    pub rules: HashMap<String, MatchingRules>,
+    /// Generators keyed by `$.<path>` rooted at THIS part's body.
+    pub generators: HashMap<String, Generator>,
+}
+
 #[derive(Debug)]
 pub struct ConfiguredInteraction {
+    pub operation: Operation,
+    pub server: Option<crate::mcp::model::ServerHint>,
+    pub request: ConfiguredPart,
+    pub response: ConfiguredPart,
+    /// The full single-fragment view (both parts merged) — used by our own
+    /// engine tests / the internal round-trip. NOT what pact core persists.
     pub fragment: McpFragment,
-    pub body_bytes: Vec<u8>,
-    pub rules: HashMap<String, MatchingRules>,
-    pub generators: HashMap<String, Generator>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,40 +90,38 @@ pub fn configure_interaction(contents_config: &Value) -> Result<ConfiguredIntera
     let raw_request = mcp.get("request").cloned().ok_or(ConfigureError::MissingField("request"))?;
     let raw_response = mcp.get("response").cloned().ok_or(ConfigureError::MissingField("response"))?;
 
+    // Each part's rules/generators are rooted at `$` of that part's own body
+    // (pact core convention: the request part body IS the request message,
+    // rules keyed `$.<field>`), collected into separate maps.
+    let request = build_part(&raw_request)?;
+    let response = build_part(&raw_response)?;
+
+    let server = mcp
+        .get("server")
+        .and_then(|s| s.get("transport"))
+        .and_then(Value::as_str)
+        .map(|t| crate::mcp::model::ServerHint { transport: t.to_string() });
+
+    let mut interaction = McpInteraction::new(operation, request.body.clone(), response.body.clone());
+    interaction.server = server.clone();
+    let fragment = McpFragment::new(interaction);
+
+    Ok(ConfiguredInteraction { operation, server, request, response, fragment })
+}
+
+fn build_part(raw: &Value) -> Result<ConfiguredPart, ConfigureError> {
     let mut rules: HashMap<String, MatchingRules> = HashMap::new();
     let mut generators: HashMap<String, Generator> = HashMap::new();
-
-    let request = strip_and_collect(&raw_request, "request", &mut rules, &mut generators)?;
-    let response = strip_and_collect(&raw_response, "response", &mut rules, &mut generators)?;
-
-    let mut interaction = McpInteraction::new(operation, request, response);
-    if let Some(server) = mcp.get("server") {
-        if let Some(transport) = server.get("transport").and_then(Value::as_str) {
-            interaction.server = Some(crate::mcp::model::ServerHint { transport: transport.to_string() });
-        }
-    }
-
-    let fragment = McpFragment::new(interaction);
-    let body_bytes = serde_json::to_vec(&fragment).expect("McpFragment always serializes");
-
-    Ok(ConfiguredInteraction { fragment, body_bytes, rules, generators })
+    let root = DocPath::root();
+    let body = walk(raw, &root, &mut rules, &mut generators)?;
+    let body_bytes = serde_json::to_vec(&body).expect("part body always serializes");
+    Ok(ConfiguredPart { body_bytes, body, rules, generators })
 }
 
 /// Recursively walk a request/response JSON tree. Any string leaf that is a
 /// matcher-definition DSL is (a) recorded as a rule/generator keyed by its
-/// `$.<part>.<path>` DocPath and (b) replaced by its example value in the
-/// returned (stripped) JSON. Non-matcher values pass through unchanged.
-fn strip_and_collect(
-    value: &Value,
-    part: &str,
-    rules: &mut HashMap<String, MatchingRules>,
-    generators: &mut HashMap<String, Generator>,
-) -> Result<Value, ConfigureError> {
-    // Root DocPath for this part: `$.request` / `$.response`.
-    let root = DocPath::root().join(part);
-    walk(value, &root, rules, generators)
-}
-
+/// `$.<path>` DocPath (rooted at the part body) and (b) replaced by its example
+/// value in the returned (stripped) JSON. Non-matcher values pass through.
 fn walk(
     value: &Value,
     path: &DocPath,
@@ -246,49 +262,43 @@ fn example_value(mrd: &MatchingRuleDefinition) -> Value {
 }
 
 /// Reconstruct our internal `Rules` JSON shape (`{"<path>": {"matchers":[{"match":"..."}]}}`)
-/// from the proto rules map, filtered to a single part (`request` or `response`)
-/// and re-rooted at `$.` for `content::compare_response` / `match_tools_call_request`.
-pub fn rules_value_for_root(proto_rules: &HashMap<String, MatchingRules>, root: &str) -> Value {
-    let prefix = format!("$.{root}.");
+/// from a part's proto rules map (already keyed `$.<path>`) for
+/// `content::compare_response` / `match_tools_call_request`.
+pub fn rules_value(proto_rules: &HashMap<String, MatchingRules>) -> Value {
     let mut obj = serde_json::Map::new();
     for (path, rules) in proto_rules {
-        if let Some(rest) = path.strip_prefix(&prefix) {
-            let matchers: Vec<Value> = rules
-                .rule
-                .iter()
-                .map(|r| {
-                    let mut m = serde_json::Map::new();
-                    m.insert("match".to_string(), Value::String(r.r#type.clone()));
-                    Value::Object(m)
-                })
-                .collect();
-            obj.insert(format!("$.{rest}"), serde_json::json!({ "matchers": matchers }));
-        }
+        let matchers: Vec<Value> = rules
+            .rule
+            .iter()
+            .map(|r| {
+                let mut m = serde_json::Map::new();
+                m.insert("match".to_string(), Value::String(r.r#type.clone()));
+                Value::Object(m)
+            })
+            .collect();
+        obj.insert(path.clone(), serde_json::json!({ "matchers": matchers }));
     }
     Value::Object(obj)
 }
 
-/// Render exactly what pact core would persist under `matchingRules.body` for a
-/// part, using pact_models' own serialization — for the round-trip validation
-/// test / ADR 0004 evidence.
-pub fn persisted_body_category(proto_rules: &HashMap<String, MatchingRules>, root: &str) -> Value {
-    let prefix = format!("$.{root}.");
+/// Render exactly what pact core would persist under a part's
+/// `matchingRules.body`, using pact_models' own serialization — for the
+/// round-trip validation test / ADR 0004 evidence.
+pub fn persisted_body_category(proto_rules: &HashMap<String, MatchingRules>) -> Value {
     let mut category = MatchingRuleCategory::empty("body");
     for (path, rules) in proto_rules {
-        if let Some(rest) = path.strip_prefix(&prefix) {
-            if let Ok(doc) = DocPath::new(format!("$.{rest}")) {
-                for rule in &rules.rule {
-                    let mr = match rule.r#type.as_str() {
-                        "type" => pact_models::matchingrules::MatchingRule::Type,
-                        "number" => pact_models::matchingrules::MatchingRule::Number,
-                        "integer" => pact_models::matchingrules::MatchingRule::Integer,
-                        "boolean" => pact_models::matchingrules::MatchingRule::Boolean,
-                        "equality" => pact_models::matchingrules::MatchingRule::Equality,
-                        "not-empty" | "notEmpty" => pact_models::matchingrules::MatchingRule::NotEmpty,
-                        _ => pact_models::matchingrules::MatchingRule::Type,
-                    };
-                    category.add_rule(doc.clone(), mr, RuleLogic::And);
-                }
+        if let Ok(doc) = DocPath::new(path.clone()) {
+            for rule in &rules.rule {
+                let mr = match rule.r#type.as_str() {
+                    "type" => pact_models::matchingrules::MatchingRule::Type,
+                    "number" => pact_models::matchingrules::MatchingRule::Number,
+                    "integer" => pact_models::matchingrules::MatchingRule::Integer,
+                    "boolean" => pact_models::matchingrules::MatchingRule::Boolean,
+                    "equality" => pact_models::matchingrules::MatchingRule::Equality,
+                    "not-empty" | "notEmpty" => pact_models::matchingrules::MatchingRule::NotEmpty,
+                    _ => pact_models::matchingrules::MatchingRule::Type,
+                };
+                category.add_rule(doc.clone(), mr, RuleLogic::And);
             }
         }
     }
@@ -297,6 +307,22 @@ pub fn persisted_body_category(proto_rules: &HashMap<String, MatchingRules>, roo
 
 pub fn body_content_type(body: &Body) -> &str {
     &body.content_type
+}
+
+/// Build the `interaction_configuration` Struct persisted per part in the
+/// pact's `pluginConfiguration` — carries the `operation` and optional `server`
+/// hint that are NOT part of the per-part body but are needed to reconstruct
+/// the `McpInteraction` at verification time.
+pub fn interaction_config_struct(
+    operation: Operation,
+    server: &Option<crate::mcp::model::ServerHint>,
+) -> prost_types::Struct {
+    let mut obj = serde_json::Map::new();
+    obj.insert("operation".to_string(), Value::String(operation.method().to_string()));
+    if let Some(server) = server {
+        obj.insert("server".to_string(), serde_json::json!({ "transport": server.transport }));
+    }
+    json_to_prost_struct(&Value::Object(obj)).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -316,18 +342,20 @@ mod tests {
 
         let configured = configure_interaction(&contents_config).expect("valid config");
 
-        // Persisted body has the DSL stripped to the example value.
+        // Response part body has the DSL stripped to the example value.
         assert_eq!(
-            configured.fragment.mcp.response,
+            configured.response.body,
             serde_json::json!({ "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false })
         );
 
-        // Rule recorded at the DocPath, namespaced by part.
-        assert!(configured.rules.contains_key("$.response.content[0].text"));
-        assert_eq!(configured.rules["$.response.content[0].text"].rule[0].r#type, "type");
+        // Rule recorded at the DocPath, rooted at the response part body ($.).
+        assert!(configured.response.rules.contains_key("$.content[0].text"));
+        assert_eq!(configured.response.rules["$.content[0].text"].rule[0].r#type, "type");
+        // The request part carries no rules for this interaction.
+        assert!(configured.request.rules.is_empty());
 
         // Round-trips into the internal Rules shape our engine reads.
-        let response_rules_value = rules_value_for_root(&configured.rules, "response");
+        let response_rules_value = rules_value(&configured.response.rules);
         assert_eq!(
             response_rules_value,
             serde_json::json!({ "$.content[0].text": { "matchers": [ { "match": "type" } ] } })
@@ -343,10 +371,10 @@ mod tests {
         });
         let configured = configure_interaction(&contents_config).expect("valid config");
         assert_eq!(
-            configured.fragment.mcp.request,
+            configured.request.body,
             serde_json::json!({ "name": "get_weather", "arguments": { "zoom": 5.0 } })
         );
-        assert_eq!(configured.rules["$.request.arguments.zoom"].rule[0].r#type, "number");
+        assert_eq!(configured.request.rules["$.arguments.zoom"].rule[0].r#type, "number");
     }
 
     #[test]
@@ -357,7 +385,7 @@ mod tests {
             "response": { "content": [ { "type": "text", "text": "matching(regex, '^[A-Z].*', 'Sunny')" } ], "isError": false }
         });
         let configured = configure_interaction(&contents_config).expect("valid config");
-        let rule = &configured.rules["$.response.content[0].text"].rule[0];
+        let rule = &configured.response.rules["$.content[0].text"].rule[0];
         assert_eq!(rule.r#type, "regex");
         let values = rule.values.as_ref().expect("regex carries values");
         assert!(values.fields.contains_key("regex"));
@@ -371,7 +399,8 @@ mod tests {
             "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
         });
         let configured = configure_interaction(&contents_config).expect("valid config");
-        assert!(configured.rules.is_empty(), "literals should produce no matching rules");
+        assert!(configured.request.rules.is_empty(), "literal request produces no rules");
+        assert!(configured.response.rules.is_empty(), "literal response produces no rules");
     }
 
     #[test]
@@ -393,7 +422,7 @@ mod tests {
             "response": { "content": [ { "type": "text", "text": "matching(type, 'x')" } ], "isError": false }
         });
         let configured = configure_interaction(&contents_config).expect("valid config");
-        let body_category = persisted_body_category(&configured.rules, "response");
+        let body_category = persisted_body_category(&configured.response.rules);
         // Shape: { "$.content[0].text": { "combine": "AND", "matchers": [ { "match": "type" } ] } }
         let rule = &body_category["$.content[0].text"];
         assert_eq!(rule["combine"], "AND");
