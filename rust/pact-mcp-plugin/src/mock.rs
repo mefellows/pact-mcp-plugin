@@ -47,6 +47,10 @@ struct MockInteraction {
 pub struct MockServer {
     interactions: Arc<Vec<MockInteraction>>,
     results: Arc<Mutex<Vec<MockResult>>>,
+    /// If set, results are flushed to this file after EVERY recorded request, so
+    /// a consumer (e.g. the TS adapter) can read them reliably without waiting
+    /// for the mock process to exit.
+    results_path: Arc<Mutex<Option<std::path::PathBuf>>>,
 }
 
 impl MockServer {
@@ -59,7 +63,14 @@ impl MockServer {
                     .collect(),
             ),
             results: Arc::new(Mutex::new(Vec::new())),
+            results_path: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Flush results to `path` after each recorded request (live).
+    pub fn with_live_results_path(self, path: impl Into<std::path::PathBuf>) -> Self {
+        *self.results_path.lock().unwrap() = Some(path.into());
+        self
     }
 
     pub fn results_handle(&self) -> Arc<Mutex<Vec<MockResult>>> {
@@ -91,12 +102,20 @@ impl MockServer {
         Ok(Self {
             interactions: Arc::new(parsed),
             results: Arc::new(Mutex::new(Vec::new())),
+            results_path: Arc::new(Mutex::new(None)),
         })
     }
 
     fn record(&self, result: MockResult) {
         if let Ok(mut guard) = self.results.lock() {
             guard.push(result);
+            // Flush live if a path is configured, so consumers don't race the
+            // process exit to read results.
+            if let Ok(path_guard) = self.results_path.lock() {
+                if let Some(path) = path_guard.as_ref() {
+                    let _ = write_results(path.to_string_lossy().as_ref(), &guard);
+                }
+            }
         }
     }
 

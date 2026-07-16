@@ -68,14 +68,19 @@ async fn run_mock(args: &[String]) -> anyhow::Result<()> {
     let pact_path = pact_path.ok_or_else(|| anyhow::anyhow!("mock mode requires --pact <file>"))?;
 
     let pact_json = std::fs::read_to_string(&pact_path)?;
-    let mock = MockServer::from_pact_json(&pact_json)?;
+    let mut mock = MockServer::from_pact_json(&pact_json)?;
+    if let Some(path) = &results_path {
+        // Flush results after each request so a consumer can read them without
+        // racing the process exit.
+        mock = mock.with_live_results_path(path.clone());
+    }
     let results = mock.results_handle();
 
     // Serve MCP over this process's stdio; the client drives initialize/list/call.
     let running = mock.serve(stdio()).await?;
     let _ = running.waiting().await;
 
-    // Flush results for GetMockServerResults / ShutdownMockServer to read.
+    // Final flush (also covers the no-request case).
     if let Some(path) = results_path {
         let snapshot = results.lock().map(|g| g.clone()).unwrap_or_default();
         write_results(&path, &snapshot)?;

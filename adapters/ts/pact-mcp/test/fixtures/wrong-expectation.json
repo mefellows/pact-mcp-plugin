@@ -1,0 +1,30 @@
+{
+  "consumer": { "name": "weather-agent" },
+  "provider": { "name": "weather-mcp" },
+  "interactions": [
+    {
+      "type": "Synchronous/Messages",
+      "description": "an exact response the fixture server will not return",
+      "pluginConfiguration": { "mcp": { "operation": "tools/call", "server": { "transport": "stdio" } } },
+      "request": {
+        "contents": {
+          "content": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+          "contentType": "application/mcp+json",
+          "contentTypeHint": "TEXT",
+          "encoded": false
+        }
+      },
+      "response": [
+        {
+          "contents": {
+            "content": { "content": [ { "type": "text", "text": "Blizzard, -40C" } ], "isError": false },
+            "contentType": "application/mcp+json",
+            "contentTypeHint": "TEXT",
+            "encoded": false
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": { "pactSpecification": { "version": "4.0" }, "plugins": [ { "name": "mcp", "version": "0.1.0" } ] }
+}
