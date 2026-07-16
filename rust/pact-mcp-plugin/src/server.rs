@@ -438,13 +438,14 @@ fn extract_interaction(pact_json: &str, interaction_key: &str) -> Result<crate::
 /// Reconstruct an `McpInteraction` from a persisted interaction, tolerating two
 /// shapes:
 ///  1. Our single-fragment `examples/` shape: `contents.mcp = { operation, request, response, ... }`.
-///  2. The real pact-core two-part sync-message shape (VERIFIED requirement,
-///     though the live FFI round trip was blocked — see ADR 0004):
-///     `request.contents` + `response.contents` are the per-part bodies, and
-///     `operation` lives in the interaction's `pluginConfiguration`
-///     (`interactionConfiguration.operation`) or is inferred from the response
-///     body shape.
-pub(crate) fn interaction_from_value(interaction: &serde_json::Value) -> Result<crate::mcp::model::McpInteraction, String> {
+///  2. The REAL pact-core two-part sync-message shape, now CONFIRMED by a live
+///     pact-js round trip (see ADR 0004 and the committed evidence pact at
+///     `examples/ts-roundtrip/pacts/`): the request body is
+///     `request.contents.content`, the response body is
+///     `response[0].contents.content` (response is an array of parts), and
+///     `operation`/`server` live in `pluginConfiguration.<pluginName>` (e.g.
+///     `pluginConfiguration.mcp.operation`).
+pub fn interaction_from_value(interaction: &serde_json::Value) -> Result<crate::mcp::model::McpInteraction, String> {
     use crate::mcp::model::{McpInteraction, Operation, ServerHint};
 
     // Shape 1: single merged fragment.
@@ -452,23 +453,25 @@ pub(crate) fn interaction_from_value(interaction: &serde_json::Value) -> Result<
         return serde_json::from_value(mcp.clone()).map_err(|e| e.to_string());
     }
 
-    // Shape 2: two-part sync message.
+    // Shape 2: real two-part sync message. Body lives under `contents.content`.
     let request = interaction
-        .pointer("/request/contents")
-        .or_else(|| interaction.pointer("/request/contents/content"))
+        .pointer("/request/contents/content")
+        .or_else(|| interaction.pointer("/request/contents"))
         .cloned()
-        .ok_or("interaction has neither contents.mcp nor request.contents")?;
+        .ok_or("interaction has neither contents.mcp nor request.contents.content")?;
     let response = interaction
-        .pointer("/response/0/contents")
-        .or_else(|| interaction.pointer("/response/contents"))
+        .pointer("/response/0/contents/content")
+        .or_else(|| interaction.pointer("/response/0/contents"))
+        .or_else(|| interaction.pointer("/response/contents/content"))
         .cloned()
         .unwrap_or(serde_json::Value::Null);
 
-    // operation: from pluginConfiguration, else inferred from response shape.
-    let operation = interaction
+    let plugin_config = interaction
         .pointer("/pluginConfiguration")
         .and_then(|pc| pc.as_object())
-        .and_then(|m| m.values().next())
+        .and_then(|m| m.values().next());
+
+    let operation = plugin_config
         .and_then(|v| v.get("operation"))
         .and_then(serde_json::Value::as_str)
         .and_then(Operation::parse)
@@ -480,10 +483,7 @@ pub(crate) fn interaction_from_value(interaction: &serde_json::Value) -> Result<
             }
         });
 
-    let server = interaction
-        .pointer("/pluginConfiguration")
-        .and_then(|pc| pc.as_object())
-        .and_then(|m| m.values().next())
+    let server = plugin_config
         .and_then(|v| v.get("server"))
         .and_then(|s| s.get("transport"))
         .and_then(serde_json::Value::as_str)
@@ -492,4 +492,15 @@ pub(crate) fn interaction_from_value(interaction: &serde_json::Value) -> Result<
     let mut mcp = McpInteraction::new(operation, request, response);
     mcp.server = server;
     Ok(mcp)
+}
+
+/// Extract the response-part matching rules from a persisted interaction (real
+/// two-part shape: `response[0].matchingRules.body`), reshaped for the engine's
+/// `content::Rules` (keys `$.<path>`, each `{matchers:[{match:...}]}`; the
+/// persisted `combine` field is ignored). Returns `None` if there are none.
+pub fn response_matching_rules(interaction: &serde_json::Value) -> Option<serde_json::Value> {
+    let body = interaction
+        .pointer("/response/0/matchingRules/body")
+        .or_else(|| interaction.pointer("/matchingRules/response"))?;
+    Some(body.clone())
 }
