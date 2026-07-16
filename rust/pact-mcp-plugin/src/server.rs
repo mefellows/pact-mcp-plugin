@@ -504,3 +504,15 @@ pub fn response_matching_rules(interaction: &serde_json::Value) -> Option<serde_
         .or_else(|| interaction.pointer("/matchingRules/response"))?;
     Some(body.clone())
 }
+
+/// Extract the request-part matching rules from a persisted interaction (real
+/// two-part shape: `request.matchingRules.body`, keyed `$.<path>` rooted at the
+/// request body, e.g. `$.arguments.city`), reshaped for `content::Rules`.
+/// Returns `None` if there are none. Used by the mock to decide which
+/// interaction an incoming `tools/call` matches (matching-semantics §4).
+pub fn request_matching_rules(interaction: &serde_json::Value) -> Option<serde_json::Value> {
+    let body = interaction
+        .pointer("/request/matchingRules/body")
+        .or_else(|| interaction.pointer("/matchingRules/request"))?;
+    Some(body.clone())
+}

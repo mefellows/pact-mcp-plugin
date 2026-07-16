@@ -34,17 +34,30 @@ pub struct MockResult {
     pub mismatches: Vec<String>,
 }
 
+/// A configured interaction plus its request-side matching rules (used to
+/// decide which interaction an incoming `tools/call` matches).
+struct MockInteraction {
+    mcp: McpInteraction,
+    /// `{"$.<path>": {"matchers":[{"match":"type"}]}}` rooted at the request body.
+    request_rules: Option<Value>,
+}
+
 /// The parsed interactions + a shared results sink.
 #[derive(Clone)]
 pub struct MockServer {
-    interactions: Arc<Vec<McpInteraction>>,
+    interactions: Arc<Vec<MockInteraction>>,
     results: Arc<Mutex<Vec<MockResult>>>,
 }
 
 impl MockServer {
     pub fn new(interactions: Vec<McpInteraction>) -> Self {
         Self {
-            interactions: Arc::new(interactions),
+            interactions: Arc::new(
+                interactions
+                    .into_iter()
+                    .map(|mcp| MockInteraction { mcp, request_rules: None })
+                    .collect(),
+            ),
             results: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -54,7 +67,10 @@ impl MockServer {
     }
 
     /// Load interactions from a pact-as-JSON document, keeping only the `mcp`
-    /// plugin interactions (tolerates the single-fragment and two-part shapes).
+    /// plugin interactions (tolerates the single-fragment and two-part shapes)
+    /// AND their request-side matching rules (real
+    /// `request.matchingRules.body`, so authored `matching(...)` matchers on
+    /// request arguments are honored — matching-semantics §4).
     pub fn from_pact_json(pact_json: &str) -> anyhow::Result<Self> {
         let pact: Value = serde_json::from_str(pact_json)?;
         let interactions = pact
@@ -65,13 +81,17 @@ impl MockServer {
         let mut parsed = Vec::new();
         for interaction in interactions {
             if let Ok(mcp) = crate::server::interaction_from_value(interaction) {
-                parsed.push(mcp);
+                let request_rules = crate::server::request_matching_rules(interaction);
+                parsed.push(MockInteraction { mcp, request_rules });
             }
         }
         if parsed.is_empty() {
             anyhow::bail!("no mcp interactions found in pact");
         }
-        Ok(Self::new(parsed))
+        Ok(Self {
+            interactions: Arc::new(parsed),
+            results: Arc::new(Mutex::new(Vec::new())),
+        })
     }
 
     fn record(&self, result: MockResult) {
@@ -87,7 +107,8 @@ impl MockServer {
         let mut tools: Vec<Tool> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
 
-        for interaction in self.interactions.iter() {
+        for entry in self.interactions.iter() {
+            let interaction = &entry.mcp;
             match interaction.operation {
                 Operation::ToolsList => {
                     if let Some(list) = interaction.response.get("tools").and_then(Value::as_array) {
@@ -131,11 +152,15 @@ impl MockServer {
 
         let mut best_mismatch: Option<Vec<String>> = None;
 
-        for interaction in self.interactions.iter() {
+        for entry in self.interactions.iter() {
+            let interaction = &entry.mcp;
             if interaction.operation != Operation::ToolsCall {
                 continue;
             }
-            let rules = Rules::default(); // request matchers not yet carried into the pact fixture
+            // Honor any request-side matchers authored in the pact (e.g.
+            // `matching(type, ...)` on an argument), so a call whose arguments
+            // differ but satisfy the matcher still selects this interaction.
+            let rules = Rules::new(entry.request_rules.as_ref());
             let result = match_tools_call_request(&interaction.request, &incoming, &rules);
             if result.is_match() {
                 // Matched — return the configured response.
@@ -268,5 +293,45 @@ mod tests {
         assert_eq!(guard.len(), 1);
         assert!(guard[0].error.is_some());
         assert!(guard[0].mismatches.contains(&"$.arguments.city".to_string()));
+    }
+
+    /// A pact in the real two-part shape carrying a request-side `type` matcher
+    /// on the `city` argument (`request.matchingRules.body`).
+    fn pact_json_with_request_matcher() -> String {
+        serde_json::json!({
+            "interactions": [
+                {
+                    "description": "weather for any city",
+                    "type": "Synchronous/Messages",
+                    "pluginConfiguration": { "mcp": { "operation": "tools/call" } },
+                    "request": {
+                        "contents": { "content": { "name": "get_weather", "arguments": { "city": "Melbourne" } } },
+                        "matchingRules": { "body": { "$.arguments.city": { "combine": "AND", "matchers": [ { "match": "type" } ] } } }
+                    },
+                    "response": [
+                        { "contents": { "content": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false } } }
+                    ]
+                }
+            ]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn request_side_type_matcher_selects_the_interaction_for_a_different_argument() {
+        let mock = MockServer::from_pact_json(&pact_json_with_request_matcher()).unwrap();
+
+        // A call with a DIFFERENT city still matches, because the request arg
+        // carries a `type` matcher (any string) — not exact equality.
+        let params = CallToolRequestParams::new("get_weather")
+            .with_arguments(serde_json::json!({ "city": "Reykjavik" }).as_object().unwrap().clone());
+        let result = mock.handle_call(&params).expect("type matcher should accept any city");
+        assert_eq!(result.content[0].as_text().unwrap().text, "Sunny, 22C");
+
+        // But a wrong TYPE (number instead of string) must NOT match.
+        let bad = CallToolRequestParams::new("get_weather")
+            .with_arguments(serde_json::json!({ "city": 42 }).as_object().unwrap().clone());
+        let err = mock.handle_call(&bad).expect_err("a number should not satisfy a string type matcher");
+        assert!(err.message.contains("no matching interaction"));
     }
 }

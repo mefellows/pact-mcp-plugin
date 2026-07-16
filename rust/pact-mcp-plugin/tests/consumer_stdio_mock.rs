@@ -17,10 +17,14 @@ fn repo_root() -> PathBuf {
 }
 
 fn run_client(city: &str, results_path: &PathBuf) -> Value {
+    run_client_with_pact("pacts/weather-agent-weather-mcp.json", city, results_path)
+}
+
+fn run_client_with_pact(pact_rel: &str, city: &str, results_path: &PathBuf) -> Value {
     let root = repo_root();
     let binary = env!("CARGO_BIN_EXE_pact-mcp-plugin");
     let client = root.join("examples/consumer-stdio-mock/client.mjs");
-    let pact = root.join("examples/consumer-stdio-mock/pacts/weather-agent-weather-mcp.json");
+    let pact = root.join("examples/consumer-stdio-mock").join(pact_rel);
 
     let output = Command::new("node")
         .arg(&client)
@@ -99,6 +103,22 @@ fn unexpected_call_is_reported_and_recorded_as_a_mismatch() {
     assert!(
         mismatches.iter().any(|m| m == "$.arguments.city"),
         "expected a mismatch at $.arguments.city, got {mismatches:?}"
+    );
+    let _ = std::fs::remove_file(&results);
+}
+
+#[test]
+fn request_side_type_matcher_lets_the_real_client_call_with_a_different_city() {
+    // The anycity pact carries a request-side `matching(type)` on `city`, so a
+    // real client calling with a city other than the example still matches and
+    // gets the configured response.
+    let results = std::env::temp_dir().join(format!("mcp-mock-anycity-{}.json", std::process::id()));
+    let out = run_client_with_pact("pacts/weather-agent-anycity.json", "Reykjavik", &results);
+
+    assert!(out.get("error").is_none(), "expected a match via the type matcher, got {out:?}");
+    assert_eq!(
+        out["call"],
+        serde_json::json!({ "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false })
     );
     let _ = std::fs::remove_file(&results);
 }
