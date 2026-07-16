@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "pluginInterfaceVersion": 1,
+  "name": "mcp",
+  "version": "0.1.0",
+  "executableType": "exec",
+  "minimumRequiredVersion": "0.1.0",
+  "entryPoint": "pact-mcp-plugin",
+  "entryPoints": {
+    "windows": "pact-mcp-plugin.exe"
+  }
+}
