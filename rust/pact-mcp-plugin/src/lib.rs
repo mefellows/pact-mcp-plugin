@@ -1,4 +1,5 @@
 pub mod catalogue;
+pub mod cli;
 pub mod config;
 pub mod content;
 pub mod mcp;

@@ -42,8 +42,11 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("mock") {
-        return run_mock(&args[1..]).await;
+    match args.first().map(String::as_str) {
+        Some("mock") => return run_mock(&args[1..]).await,
+        Some("verify") => return pact_mcp_plugin::cli::run_verify(&args[1..]).await,
+        Some("compare") => return pact_mcp_plugin::cli::run_compare(&args[1..]),
+        _ => {}
     }
 
     run_plugin_server().await
