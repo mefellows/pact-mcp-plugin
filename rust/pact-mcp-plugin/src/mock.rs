@@ -258,6 +258,44 @@ pub fn write_results(path: &str, results: &[MockResult]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A running loopback HTTP mock: its bound address, a live results handle, and a
+/// cancellation token to shut it down.
+pub struct HttpMockHandle {
+    pub addr: std::net::SocketAddr,
+    pub results: Arc<Mutex<Vec<MockResult>>>,
+    pub shutdown: tokio_util::sync::CancellationToken,
+}
+
+/// Stand up a loopback Streamable HTTP MCP mock on `127.0.0.1:0` serving this
+/// mock's handler (Option B over HTTP — §7.2). Returns the bound address, a
+/// live results handle, and a shutdown token. The server runs on a background
+/// task until the token is cancelled.
+pub async fn serve_http(mock: MockServer) -> std::io::Result<HttpMockHandle> {
+    use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+    use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+
+    let results = mock.results_handle();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let shutdown = tokio_util::sync::CancellationToken::new();
+
+    let service = StreamableHttpService::new(
+        move || Ok(mock.clone()),
+        Arc::new(LocalSessionManager::default()),
+        StreamableHttpServerConfig::default(),
+    );
+
+    let app = axum::Router::new().fallback_service(service);
+    let shutdown_child = shutdown.clone();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app)
+            .with_graceful_shutdown(async move { shutdown_child.cancelled().await })
+            .await;
+    });
+
+    Ok(HttpMockHandle { addr, results, shutdown })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

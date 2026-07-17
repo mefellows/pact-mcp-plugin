@@ -36,6 +36,7 @@ rmcp = { version = "2.2", features = [
 http = "1"
 futures = "0.3"
 tokio-stream = "0.1"
+tokio-util = "0.7"
 axum = "0.7"
 # Real Pact matcher-definition DSL parser + DocPath — the SAME crate/functions
 # pact-protobuf-plugin uses (pact_models::matchingrules::expressions), so the

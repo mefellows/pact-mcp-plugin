@@ -41,5 +41,13 @@ pub fn entries() -> Vec<CatalogueEntry> {
             key: "mcp-stdio".to_string(),
             values: HashMap::new(),
         },
+        // Streamable HTTP transport (Phase 2). Transport entries carry no
+        // content-types, so the ADR 0004 regex-escaping hazard does not apply
+        // here — but we keep entry values free of regex metacharacters anyway.
+        CatalogueEntry {
+            r#type: EntryType::Transport as i32,
+            key: "mcp-http".to_string(),
+            values: HashMap::new(),
+        },
     ]
 }

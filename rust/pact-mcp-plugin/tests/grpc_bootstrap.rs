@@ -288,3 +288,105 @@ async fn configure_interaction_returns_two_part_sync_message_with_stripped_match
 
     let _ = child.kill().await;
 }
+
+/// Phase 2 — loopback HTTP consumer mock (deliverable 4). StartMockServer with
+/// testContext.transport="http" stands up a real Streamable HTTP MCP mock; a
+/// REAL @modelcontextprotocol/sdk Node client connects over HTTP, gets the
+/// configured response, and an unexpected call is recorded as a mismatch.
+#[tokio::test]
+async fn http_mock_serves_a_real_node_client_over_http() {
+    use pact_mcp_plugin::proto::*;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let (mut child, handshake) = spawn_plugin().await;
+    let channel = tonic::transport::Endpoint::new(format!("http://127.0.0.1:{}", handshake.port))
+        .unwrap()
+        .connect()
+        .await
+        .unwrap();
+    let mut client = pact_mcp_plugin::proto::pact_plugin_client::PactPluginClient::with_interceptor(
+        channel,
+        move |mut req: tonic::Request<()>| {
+            req.metadata_mut().insert("authorization", handshake.server_key.parse().unwrap());
+            Ok(req)
+        },
+    );
+
+    let pact = serde_json::json!({
+        "interactions": [ { "description": "melbourne", "contents": { "mcp": {
+            "schemaVersion": "0",
+            "operation": "tools/call",
+            "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+            "response": { "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }
+        }}}]
+    })
+    .to_string();
+
+    let test_context = json_to_prost_struct(&serde_json::json!({ "transport": "http" }));
+    let resp = client
+        .start_mock_server(StartMockServerRequest {
+            host_interface: String::new(),
+            port: 0,
+            tls: false,
+            pact,
+            test_context: Some(test_context),
+        })
+        .await
+        .expect("StartMockServer failed")
+        .into_inner();
+
+    let details = match resp.response {
+        Some(start_mock_server_response::Response::Details(d)) => d,
+        other => panic!("expected http mock details, got {other:?}"),
+    };
+    assert!(details.port > 0, "http mock should bind a real port");
+    assert!(details.address.starts_with("http://"), "address should be a URL: {}", details.address);
+
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let client_js = repo_root.join("examples/consumer-http-mock/client.mjs");
+
+    // Positive: real Node client over HTTP gets the configured response.
+    let out = Command::new("node")
+        .arg(&client_js)
+        .arg(&details.address)
+        .arg("Melbourne")
+        .current_dir(repo_root.join("examples/consumer-http-mock"))
+        .output()
+        .expect("run node http client");
+    assert!(out.status.success(), "node client failed: {}", String::from_utf8_lossy(&out.stderr));
+    let parsed: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).lines().last().unwrap()).unwrap();
+    assert_eq!(parsed["tools"], serde_json::json!(["get_weather"]));
+    assert_eq!(
+        parsed["call"]["content"][0]["text"], "Sunny, 22C",
+        "expected configured response over HTTP, got {parsed:?}"
+    );
+
+    // Negative: unexpected city -> the mock records a mismatch.
+    let neg = Command::new("node")
+        .arg(&client_js)
+        .arg(&details.address)
+        .arg("Atlantis")
+        .current_dir(repo_root.join("examples/consumer-http-mock"))
+        .output()
+        .expect("run node http client (neg)");
+    assert!(neg.status.success());
+
+    let results = client
+        .get_mock_server_results(MockServerRequest { server_key: details.key.clone() })
+        .await
+        .expect("GetMockServerResults failed")
+        .into_inner();
+    // At least one recorded tools/call error from the Atlantis miss.
+    assert!(
+        results.results.iter().any(|r| r.path == "tools/call" && !r.error.is_empty()),
+        "expected a recorded mismatch, got {:?}",
+        results.results
+    );
+
+    let _ = client
+        .shutdown_mock_server(ShutdownMockServerRequest { server_key: details.key })
+        .await;
+    let _ = child.kill().await;
+}
