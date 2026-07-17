@@ -2,8 +2,10 @@
 //! interaction's request, and `CompareContents` the response.
 //! See docs/plans/pact-mcp-plugin-implementation-plan.md §8.
 
+use crate::auth::{AuthError, ResolvedAuth};
 use crate::content::{compare_response, MatchResult, Rules};
 use crate::mcp::model::McpInteraction;
+use crate::transport::http::HttpClient;
 use crate::transport::stdio::StdioClient;
 use crate::transport::TransportError;
 use std::collections::HashMap;
@@ -13,6 +15,8 @@ use thiserror::Error;
 pub enum VerifyError {
     #[error(transparent)]
     Transport(#[from] TransportError),
+    #[error(transparent)]
+    Auth(#[from] AuthError),
 }
 
 /// Configuration for spawning the provider under test over stdio.
@@ -33,6 +37,24 @@ pub async fn verify_interaction_stdio(
     matching_rules_response: Option<&serde_json::Value>,
 ) -> Result<MatchResult, VerifyError> {
     let client = StdioClient::connect(&server.command, &server.args, &server.env).await?;
+    let actual = client.perform(interaction.operation, &interaction.request).await?;
+    client.close().await?;
+
+    let rules = Rules::new(matching_rules_response);
+    Ok(compare_response(interaction.operation, &interaction.response, &actual, &rules))
+}
+
+/// Verify a single `mcp` interaction against a real Streamable HTTP MCP server:
+/// connect + handshake (with `auth` injected on every request), perform the
+/// request, compare the response. A transport/handshake failure (e.g. a 401
+/// from missing/invalid auth) surfaces as `VerifyError::Transport`.
+pub async fn verify_interaction_http(
+    interaction: &McpInteraction,
+    url: &str,
+    auth: &ResolvedAuth,
+    matching_rules_response: Option<&serde_json::Value>,
+) -> Result<MatchResult, VerifyError> {
+    let client = HttpClient::connect(url, auth).await?;
     let actual = client.perform(interaction.operation, &interaction.request).await?;
     client.close().await?;
 

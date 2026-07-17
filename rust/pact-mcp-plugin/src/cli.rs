@@ -11,10 +11,11 @@
 //!   interaction in a pact against a real stdio MCP server, reusing
 //!   `verify::verify_interaction_stdio`; print a JSON result per interaction.
 
+use crate::auth::resolve_config;
 use crate::content::{compare_response, Rules};
 use crate::mcp::model::Operation;
 use crate::server::{interaction_from_value, response_matching_rules};
-use crate::verify::{verify_interaction_stdio, StdioServerConfig};
+use crate::verify::{verify_interaction_http, verify_interaction_stdio, StdioServerConfig};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -57,11 +58,15 @@ pub fn run_compare(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `verify --pact <file> --command <cmd> [--arg <a>...]`.
+/// `verify --pact <file>` with EITHER:
+///   - stdio: `--command <cmd> [--arg <a>...]`
+///   - http:  `--url <url> [--auth <json>]`  (auth JSON per auth::from_config)
 pub async fn run_verify(args: &[String]) -> anyhow::Result<()> {
     let mut pact_path: Option<String> = None;
     let mut command: Option<String> = None;
     let mut cmd_args: Vec<String> = Vec::new();
+    let mut url: Option<String> = None;
+    let mut auth_json: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -72,17 +77,33 @@ pub async fn run_verify(args: &[String]) -> anyhow::Result<()> {
                     cmd_args.push(v.clone());
                 }
             }
+            "--url" => url = it.next().cloned(),
+            "--auth" => auth_json = it.next().cloned(),
             other => anyhow::bail!("unknown verify argument: {other}"),
         }
     }
     let pact_path = pact_path.ok_or_else(|| anyhow::anyhow!("verify requires --pact <file>"))?;
-    let command = command.ok_or_else(|| anyhow::anyhow!("verify requires --command <cmd>"))?;
 
     let raw = std::fs::read_to_string(&pact_path)?;
     let pact: Value = serde_json::from_str(&raw)?;
     let interactions = pact["interactions"].as_array().cloned().unwrap_or_default();
 
-    let server = StdioServerConfig { command, args: cmd_args, env: HashMap::new() };
+    enum Target {
+        Stdio(StdioServerConfig),
+        Http { url: String, auth: crate::auth::ResolvedAuth },
+    }
+    let target = match (url, command) {
+        (Some(url), _) => {
+            let auth_value = match &auth_json {
+                Some(s) => Some(serde_json::from_str::<Value>(s)?),
+                None => None,
+            };
+            let auth = resolve_config(auth_value.as_ref())?;
+            Target::Http { url, auth }
+        }
+        (None, Some(command)) => Target::Stdio(StdioServerConfig { command, args: cmd_args, env: HashMap::new() }),
+        (None, None) => anyhow::bail!("verify requires either --url <url> (http) or --command <cmd> (stdio)"),
+    };
 
     let mut results = Vec::new();
     for interaction in &interactions {
@@ -92,7 +113,11 @@ pub async fn run_verify(args: &[String]) -> anyhow::Result<()> {
             Err(_) => continue, // not an mcp interaction
         };
         let rules = response_matching_rules(interaction);
-        match verify_interaction_stdio(&mcp, &server, rules.as_ref()).await {
+        let verify_result = match &target {
+            Target::Stdio(server) => verify_interaction_stdio(&mcp, server, rules.as_ref()).await,
+            Target::Http { url, auth } => verify_interaction_http(&mcp, url, auth, rules.as_ref()).await,
+        };
+        match verify_result {
             Ok(match_result) => {
                 let mismatches: Vec<Value> = match_result
                     .mismatches
