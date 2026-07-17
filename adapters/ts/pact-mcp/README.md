@@ -33,10 +33,28 @@ strings, a different format. Matching itself is 100% in the Rust engine.)
 ```ts
 import { McpProviderVerifier } from "@pact-mcp/adapter";
 
+// stdio — the engine spawns your real server
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
-  .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] }) // your REAL server
+  .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
+  .verify();
+
+// http — verify a running / deployed server, with auth
+await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
+  .withServerTransport({
+    type: "http",
+    url: "https://mcp.example.com/mcp",
+    auth: { type: "bearer", token: "${MCP_TOKEN}" }, // or apiKey / headers
+  })
   .verify();
 ```
+
+## HTTP + auth
+
+Both the consumer mock (`new McpPact({ …, mockTransport: "http" })`) and provider
+verification support Streamable HTTP. Auth kinds: `bearer`, `apiKey { header,
+value }`, `headers { … }`. Secret values may use `${ENV}` interpolation and are
+**never written to the pact** — they live only on the verification/transport
+config. See `docs/usage.md`.
 
 ## How it works — the consumer flow (Option B)
 
@@ -80,5 +98,5 @@ Requires `node`, and the engine binary resolvable as above.
 
 ## Not yet implemented
 - In-memory `withServer(inMemoryFactory)` provider verification (needs an
-  in-memory→engine bridge; the stdio transport path is provided instead).
-- HTTP transport / auth (Phase 2).
+  in-memory→engine bridge; the stdio/http transport paths are provided instead).
+- OAuth2 auth (Phase 4). The `AuthProvider` seam is ready for it.
