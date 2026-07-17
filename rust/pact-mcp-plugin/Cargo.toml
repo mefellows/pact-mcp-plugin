@@ -22,9 +22,21 @@ tracing-subscriber = "0.3"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
-rmcp = { version = "2.2", features = ["client", "transport-child-process", "server", "transport-io"] }
+rmcp = { version = "2.2", features = [
+    "client",
+    "transport-child-process",
+    "server",
+    "transport-io",
+    # Streamable HTTP client transport (reqwest convenience) — supports custom
+    # headers + auth, Mcp-Session-Id, SSE/JSON response modes. See ADR 0007.
+    "transport-streamable-http-client-reqwest",
+    # Streamable HTTP server transport, for the loopback HTTP consumer mock.
+    "transport-streamable-http-server",
+] }
+http = "1"
 futures = "0.3"
 tokio-stream = "0.1"
+axum = "0.7"
 # Real Pact matcher-definition DSL parser + DocPath — the SAME crate/functions
 # pact-protobuf-plugin uses (pact_models::matchingrules::expressions), so the
 # consumer authoring convention (inline `matching(type, 'x')` / `notEmpty(...)`
