@@ -4,7 +4,7 @@
 // compare the response) runs entirely in the Rust engine via its `verify` CLI —
 // no TS-side matching. The provider's real MCP server is spawned unchanged.
 
-import { runVerify, VerifyResult } from "./engine";
+import { runVerify, runVerifyHttp, HttpAuth, VerifyResult } from "./engine";
 
 export interface StdioServerTransport {
   type: "stdio";
@@ -14,6 +14,16 @@ export interface StdioServerTransport {
   args?: string[];
 }
 
+export interface HttpServerTransport {
+  type: "http";
+  /** URL of the running MCP server's Streamable HTTP endpoint. */
+  url: string;
+  /** Optional auth; secrets can use `${ENV}` and are never written to a pact. */
+  auth?: HttpAuth;
+}
+
+export type ServerTransport = StdioServerTransport | HttpServerTransport;
+
 export interface McpProviderVerifierOptions {
   provider: string;
   /** Pact files to verify. */
@@ -21,16 +31,18 @@ export interface McpProviderVerifierOptions {
 }
 
 export class McpProviderVerifier {
-  private serverTransport?: StdioServerTransport;
+  private serverTransport?: ServerTransport;
 
   constructor(private readonly opts: McpProviderVerifierOptions) {}
 
   /**
-   * Verify against the provider's real MCP server spawned over stdio. This is
-   * the "real Server, unchanged" path — the engine spawns it, does the MCP
-   * handshake, and replays each interaction.
+   * Verify against the provider's real MCP server. Two forms:
+   *  - `{ type: 'stdio', command, args }` — the engine spawns it and replays.
+   *  - `{ type: 'http', url, auth }` — the engine connects to a running server
+   *    (deployed or loopback), injecting auth on every request.
+   * The provider's real server is used unchanged.
    */
-  withServerTransport(transport: StdioServerTransport): this {
+  withServerTransport(transport: ServerTransport): this {
     this.serverTransport = transport;
     return this;
   }
@@ -39,16 +51,19 @@ export class McpProviderVerifier {
   async verify(): Promise<VerifyResult[]> {
     if (!this.serverTransport) {
       throw new Error(
-        "withServerTransport({ type: 'stdio', command, args }) is required. " +
+        "withServerTransport({ type: 'stdio'|'http', ... }) is required. " +
           "In-memory withServer(factory) verification is not implemented yet (see README)."
       );
     }
-    const { command, args = [] } = this.serverTransport;
+    const transport = this.serverTransport;
 
     const results: VerifyResult[] = [];
     const failures: string[] = [];
     for (const pactUrl of this.opts.pactUrls) {
-      const result = runVerify(pactUrl, command, args);
+      const result =
+        transport.type === "http"
+          ? runVerifyHttp(pactUrl, transport.url, transport.auth)
+          : runVerify(pactUrl, transport.command, transport.args ?? []);
       results.push(result);
       if (!result.success) {
         for (const i of result.interactions.filter((x) => !x.success)) {

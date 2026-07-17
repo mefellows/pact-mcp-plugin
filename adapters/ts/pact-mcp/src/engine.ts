@@ -65,7 +65,7 @@ export interface VerifyResult {
   interactions: VerifyInteractionResult[];
 }
 
-/** Run `verify --pact <file> --command <cmd> [--arg ...]`. */
+/** Run `verify --pact <file> --command <cmd> [--arg ...]` (stdio provider). */
 export function runVerify(
   pactPath: string,
   command: string,
@@ -77,6 +77,28 @@ export function runVerify(
   const out = spawnSync(engine, cliArgs, { encoding: "utf8" });
   if (out.status !== 0) {
     throw new Error(`engine verify failed (${out.status}): ${out.stderr}`);
+  }
+  return parseLastJson(out.stdout) as VerifyResult;
+}
+
+/** Auth config for an HTTP target (values may use `${ENV}` interpolation). */
+export type HttpAuth =
+  | { type: "bearer"; token: string }
+  | { type: "apiKey"; header: string; value: string }
+  | { type: "headers"; headers: Record<string, string> };
+
+/** Run `verify --pact <file> --url <url> [--auth <json>]` (HTTP provider). */
+export function runVerifyHttp(
+  pactPath: string,
+  url: string,
+  auth?: HttpAuth,
+  engine = resolveEngine()
+): VerifyResult {
+  const cliArgs = ["verify", "--pact", pactPath, "--url", url];
+  if (auth) cliArgs.push("--auth", JSON.stringify(auth));
+  const out = spawnSync(engine, cliArgs, { encoding: "utf8" });
+  if (out.status !== 0) {
+    throw new Error(`engine verify (http) failed (${out.status}): ${out.stderr}`);
   }
   return parseLastJson(out.stdout) as VerifyResult;
 }

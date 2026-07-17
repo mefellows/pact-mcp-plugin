@@ -12,7 +12,9 @@
 
 import { PactV4 } from "@pact-foundation/pact";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { spawn, ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +28,13 @@ export interface McpPactOptions {
   dir?: string;
   /** Plugin version installed at ~/.pact/plugins/mcp-<version> (default "0.1.0"). */
   pluginVersion?: string;
+  /**
+   * Transport the real Client uses to reach the Pact mock:
+   *  - "stdio" (default): the engine mock over a stdio subprocess pipe.
+   *  - "http": a loopback Streamable HTTP mock (real HTTP, ephemeral port).
+   * Matching is identical (Rust engine) either way.
+   */
+  mockTransport?: "stdio" | "http";
 }
 
 /** The value the user's `executeTest` callback receives. */
@@ -91,9 +100,14 @@ export class McpPact {
       throw new Error(`expected pact-js to write a pact at ${pactPath}`);
     }
 
-    // 2. Spawn the engine stdio mock reading that pact; hand the user a transport.
+    // 2. Stand up the engine mock reading that pact; hand the user a transport.
     const engine = resolveEngine();
     const resultsPath = join(mkdtempSync(join(tmpdir(), "pact-mcp-")), "results.json");
+
+    if ((this.opts.mockTransport ?? "stdio") === "http") {
+      return this.runHttpMock(engine, pactPath, resultsPath, test);
+    }
+
     const transport = new StdioClientTransport({
       command: engine,
       args: ["mock", "--pact", pactPath, "--results", resultsPath],
@@ -107,6 +121,46 @@ export class McpPact {
     }
 
     // 3. Assert the mock recorded no errors/mismatches.
+    assertMockClean(resultsPath);
+    return value;
+  }
+
+  /** HTTP mock variant: spawn `mock --http`, connect a real HTTP client. */
+  private async runHttpMock<T>(
+    engine: string,
+    pactPath: string,
+    resultsPath: string,
+    test: (scope: McpTestScope) => Promise<T>
+  ): Promise<T> {
+    const proc: ChildProcess = spawn(
+      engine,
+      ["mock", "--pact", pactPath, "--results", resultsPath, "--http"],
+      { stdio: ["pipe", "pipe", "inherit"] }
+    );
+
+    const url = await new Promise<string>((resolve, reject) => {
+      let buf = "";
+      const t = setTimeout(() => reject(new Error("timed out waiting for http mock url")), 10000);
+      proc.stdout!.on("data", (d: Buffer) => {
+        buf += d.toString();
+        const line = buf.split("\n").find((l) => l.includes("url"));
+        if (line) {
+          clearTimeout(t);
+          resolve(JSON.parse(line).url);
+        }
+      });
+      proc.on("error", reject);
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL(url));
+    let value: T;
+    try {
+      value = await test({ transport });
+    } finally {
+      await transport.close().catch(() => undefined);
+      proc.stdin!.end(); // signal EOF -> mock shuts down + flushes results
+      await new Promise<void>((r) => proc.on("exit", () => r()));
+    }
     assertMockClean(resultsPath);
     return value;
   }

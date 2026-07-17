@@ -52,16 +52,20 @@ async fn main() -> anyhow::Result<()> {
     run_plugin_server().await
 }
 
-/// `mock --pact <file> [--results <file>]` — serve a synthesized MCP server over
-/// stdio. Blocks until the client disconnects, then flushes results.
+/// `mock --pact <file> [--results <file>] [--http]` — serve a synthesized MCP
+/// server. Default: over this process's stdio (blocks until the client
+/// disconnects). With `--http`: stand up a loopback HTTP mock, print
+/// `{"url":"http://..."}` to stdout, and serve until stdin closes.
 async fn run_mock(args: &[String]) -> anyhow::Result<()> {
     let mut pact_path: Option<String> = None;
     let mut results_path: Option<String> = None;
+    let mut http = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--pact" => pact_path = it.next().cloned(),
             "--results" => results_path = it.next().cloned(),
+            "--http" => http = true,
             other => anyhow::bail!("unknown mock argument: {other}"),
         }
     }
@@ -76,9 +80,20 @@ async fn run_mock(args: &[String]) -> anyhow::Result<()> {
     }
     let results = mock.results_handle();
 
-    // Serve MCP over this process's stdio; the client drives initialize/list/call.
-    let running = mock.serve(stdio()).await?;
-    let _ = running.waiting().await;
+    if http {
+        // Loopback HTTP mock; print the URL and serve until stdin closes.
+        let handle = pact_mcp_plugin::mock::serve_http(mock).await?;
+        println!("{{\"url\":\"http://{}/\"}}", handle.addr);
+        // Block until stdin EOF (the parent adapter closes it on teardown).
+        let mut buf = Vec::new();
+        use tokio::io::AsyncReadExt;
+        let _ = tokio::io::stdin().read_to_end(&mut buf).await;
+        handle.shutdown.cancel();
+    } else {
+        // Serve MCP over this process's stdio; the client drives the session.
+        let running = mock.serve(stdio()).await?;
+        let _ = running.waiting().await;
+    }
 
     // Final flush (also covers the no-request case).
     if let Some(path) = results_path {
