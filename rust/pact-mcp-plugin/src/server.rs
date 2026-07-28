@@ -365,26 +365,76 @@ impl PactPlugin for McpPlugin {
         request: Request<VerifyInteractionRequest>,
     ) -> Result<Response<VerifyInteractionResponse>, Status> {
         let req = request.into_inner();
-        let interaction = extract_interaction(&req.pact, &req.interaction_key)
+        let raw = extract_interaction_value(&req.pact, &req.interaction_key)
             .map_err(|e| Status::invalid_argument(e))?;
+        let interaction = interaction_from_value(&raw).map_err(|e| Status::invalid_argument(e))?;
+        let rules = response_matching_rules(&raw);
 
+        // The STANDARD verifier sends only {host, port?, providerState} (ADR
+        // 0008); `command`/`args` appear only when our own CLI drives this.
         let config = req.config.as_ref().map(struct_to_value).unwrap_or(serde_json::Value::Null);
-        let command = config
-            .get("command")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| Status::invalid_argument("verification config.command is required for stdio verification"))?
-            .to_string();
-        let args: Vec<String> = config
-            .get("args")
-            .and_then(serde_json::Value::as_array)
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
-            .unwrap_or_default();
 
-        let server_config = StdioServerConfig { command, args, env: HashMap::new() };
+        let match_result = match interaction_transport(&raw) {
+            "http" => {
+                let host = config
+                    .get("host")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("127.0.0.1");
+                // Struct numbers arrive as f64 (protobuf NumberValue).
+                let port = config
+                    .get("port")
+                    .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+                    .ok_or_else(|| {
+                        Status::invalid_argument(
+                            "mcp-http verification needs a port — pass `transports: [{ protocol: \"mcp-http\", port }]` to the verifier",
+                        )
+                    })?;
+                let path = std::env::var("PACT_MCP_SERVER_PATH").unwrap_or_else(|_| "/".to_string());
+                let path = if path.starts_with('/') { path } else { format!("/{path}") };
+                let url = format!("http://{host}:{port}{path}");
 
-        let match_result = verify_interaction_stdio(&interaction, &server_config, None)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+                let auth_config = match std::env::var("PACT_MCP_AUTH") {
+                    Ok(raw_auth) => Some(
+                        serde_json::from_str::<serde_json::Value>(&raw_auth)
+                            .map_err(|e| Status::invalid_argument(format!("PACT_MCP_AUTH is not valid JSON: {e}")))?,
+                    ),
+                    Err(_) => None,
+                };
+                let auth = crate::auth::resolve_config(auth_config.as_ref())
+                    .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+                crate::verify::verify_interaction_http(&interaction, &url, &auth, rules.as_ref())
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?
+            }
+            _ => {
+                let command = config
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| std::env::var("PACT_MCP_SERVER_COMMAND").ok())
+                    .ok_or_else(|| {
+                        Status::invalid_argument(
+                            "mcp-stdio verification needs a spawn command — set PACT_MCP_SERVER_COMMAND (+ PACT_MCP_SERVER_ARGS) on the verifier process, or pass config.command",
+                        )
+                    })?;
+                let args: Vec<String> = config
+                    .get("args")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .or_else(|| {
+                        std::env::var("PACT_MCP_SERVER_ARGS")
+                            .ok()
+                            .map(|s| s.split_whitespace().map(str::to_string).collect())
+                    })
+                    .unwrap_or_default();
+
+                let server_config = StdioServerConfig { command, args, env: HashMap::new() };
+                verify_interaction_stdio(&interaction, &server_config, rules.as_ref())
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?
+            }
+        };
 
         let success = match_result.is_match();
         let mismatches = match_result
@@ -479,18 +529,54 @@ fn decode_body<T: serde::de::DeserializeOwned>(body: &Body) -> Result<T, String>
 /// as the "interaction key" (pact core's exact key convention for V4 plugin
 /// interactions was not independently re-verified in this task — see ADR 0004).
 fn extract_interaction(pact_json: &str, interaction_key: &str) -> Result<crate::mcp::model::McpInteraction, String> {
+    extract_interaction_value(pact_json, interaction_key).and_then(|v| interaction_from_value(&v))
+}
+
+/// Look up the RAW interaction JSON by key. The standard verifier addresses
+/// interactions by `unique_key()` = the explicit `key` field if present, else
+/// an opaque calculated hash (pact_models) — so the adapter stamps a `key` on
+/// every emitted interaction (ADR 0008). Lookup order: `key`, `description`,
+/// then a single-mcp-interaction fallback (covers unstamped hash-addressed
+/// pacts with one interaction).
+pub fn extract_interaction_value(pact_json: &str, interaction_key: &str) -> Result<serde_json::Value, String> {
     let pact: serde_json::Value = serde_json::from_str(pact_json).map_err(|e| e.to_string())?;
     let interactions = pact.get("interactions").and_then(serde_json::Value::as_array).ok_or("pact has no interactions")?;
 
-    let interaction = interactions
-        .iter()
-        .find(|i| {
-            i.get("description").and_then(serde_json::Value::as_str) == Some(interaction_key)
-                || i.get("key").and_then(serde_json::Value::as_str) == Some(interaction_key)
-        })
-        .ok_or_else(|| format!("no interaction found for key `{interaction_key}`"))?;
+    let matched = interactions.iter().find(|i| {
+        i.get("key").and_then(serde_json::Value::as_str) == Some(interaction_key)
+            || i.get("description").and_then(serde_json::Value::as_str) == Some(interaction_key)
+    });
+    if let Some(i) = matched {
+        return Ok(i.clone());
+    }
+    if interactions.len() == 1 {
+        return Ok(interactions[0].clone());
+    }
+    Err(format!("no interaction found for key `{interaction_key}` (stamp interactions with a `key` — see ADR 0008)"))
+}
 
-    interaction_from_value(interaction)
+/// The wire transport for a persisted interaction: the top-level `transport`
+/// field the adapter stamps (catalogue key `mcp-stdio`/`mcp-http`), falling
+/// back to the `mcp.server.transport` hint (`stdio`/`http`) for older pacts.
+/// Defaults to stdio (ADR 0008).
+pub fn interaction_transport(interaction: &serde_json::Value) -> &'static str {
+    let named = interaction
+        .get("transport")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            interaction
+                .pointer("/pluginConfiguration")
+                .and_then(|pc| pc.as_object())
+                .and_then(|m| m.values().next())
+                .and_then(|v| v.pointer("/server/transport"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .unwrap_or("stdio");
+    if named == "mcp-http" || named == "http" {
+        "http"
+    } else {
+        "stdio"
+    }
 }
 
 /// Reconstruct an `McpInteraction` from a persisted interaction, tolerating two
