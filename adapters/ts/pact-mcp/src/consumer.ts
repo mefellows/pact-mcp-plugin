@@ -15,7 +15,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { spawn, ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveEngine } from "./engine";
@@ -81,7 +82,7 @@ export class McpPact {
         operation: "tools/call",
         request: { name: this.toolName, arguments: buildDsl(this.toolArgs) },
         response: buildDsl(this.response),
-        server: { transport: "stdio" },
+        server: { transport: (this.opts.mockTransport ?? "stdio") === "http" ? "http" : "stdio" },
       },
     };
 
@@ -99,6 +100,7 @@ export class McpPact {
     if (!existsSync(pactPath)) {
       throw new Error(`expected pact-js to write a pact at ${pactPath}`);
     }
+    stampPact(pactPath, (this.opts.mockTransport ?? "stdio") === "http" ? "mcp-http" : "mcp-stdio");
 
     // 2. Stand up the engine mock reading that pact; hand the user a transport.
     const engine = resolveEngine();
@@ -164,6 +166,28 @@ export class McpPact {
     assertMockClean(resultsPath);
     return value;
   }
+}
+
+/**
+ * Post-process the pact pact-js wrote (ADR 0008): the standard verifier only
+ * routes an interaction to a plugin transport when the interaction carries a
+ * top-level `transport` (our catalogue key), and it addresses interactions by
+ * `unique_key()` — an opaque hash unless an explicit `key` is present. pact-js's
+ * non-transport sync-message flow can set neither, so we stamp both here.
+ */
+function stampPact(pactPath: string, transport: "mcp-stdio" | "mcp-http"): void {
+  const pact = JSON.parse(readFileSync(pactPath, "utf8")) as {
+    interactions?: { description?: string; transport?: string; key?: string; pluginConfiguration?: unknown }[];
+  };
+  for (const interaction of pact.interactions ?? []) {
+    if (!interaction.pluginConfiguration) continue;
+    interaction.transport = transport;
+    interaction.key ??= createHash("sha256")
+      .update(interaction.description ?? JSON.stringify(interaction))
+      .digest("hex")
+      .slice(0, 16);
+  }
+  writeFileSync(pactPath, JSON.stringify(pact, null, 2));
 }
 
 function assertMockClean(resultsPath: string): void {
