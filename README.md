@@ -2,9 +2,9 @@
 
 Consumer-driven **contract testing for [Model Context Protocol (MCP)](https://modelcontextprotocol.io)** servers and clients, built as a [Pact](https://pact.io) plugin.
 
-Test that an AI agent (MCP **client**) and the MCP **server** it depends on agree on the shape of `tools/call`, `tools/list`, and their results — without spinning up the whole stack. You author expectations against your **real** `@modelcontextprotocol/sdk` `Client`, and verify them against your **real** MCP server. No stubbing, no service decomposition.
+Test that an AI agent (MCP **client**) and the MCP **server** it depends on agree on the shape of `tools/call`, `tools/list`, `resources/read|list`, `prompts/get|list`, and their results — without spinning up the whole stack. You author expectations against your **real** `@modelcontextprotocol/sdk` `Client`, and verify them against your **real** MCP server. No stubbing, no service decomposition.
 
-> **Status:** MVP. stdio + Streamable HTTP transports, HTTP auth (bearer / API key / custom headers), provider verification, consumer mocks, and a TypeScript adapter — all proven end-to-end against real MCP clients/servers and the real Pact toolchain. See the [roadmap](#roadmap).
+> **Status:** MVP+. stdio + Streamable HTTP transports, HTTP auth (bearer / API key / custom headers), provider verification **through the stock pact-js `Verifier`**, provider states, consumer mocks, multi-interaction pacts, and a TypeScript adapter — all proven end-to-end against real MCP clients/servers and the real Pact toolchain. See the [roadmap](#roadmap).
 
 ## Why
 
@@ -17,7 +17,10 @@ Test that an AI agent (MCP **client**) and the MCP **server** it depends on agre
 | | stdio | Streamable HTTP |
 |---|---|---|
 | Provider verification | ✅ | ✅ (+ bearer / API key / custom headers) |
+| Standard pact-js `Verifier` support (ADR 0008) | ✅ | ✅ |
+| Provider states (`given(...)` + `stateHandlers`, ADR 0009) | ✅ | ✅ |
 | Consumer mock | ✅ | ✅ (loopback) |
+| `tools/call|list`, `resources/read|list`, `prompts/get|list` | ✅ | ✅ |
 | Auto `initialize` handshake + capability negotiation | ✅ | ✅ |
 | Matching in the shared Rust engine | ✅ | ✅ |
 | TypeScript adapter DX | ✅ | ✅ |
@@ -104,10 +107,8 @@ cd adapters/ts/pact-mcp && npm install && npm test
 
 ## Roadmap
 
-- `resources/*` and `prompts/*` primitives (currently: `tools/call`, `tools/list`)
 - OAuth2 dynamic client registration (the `AuthProvider` seam is ready)
-- Cross-platform release packaging + `pact-plugin-cli` install
-- PactFlow publish + `can-i-deploy` (BDCT) walkthrough
+- Python / Go adapters + Java/.NET loopback examples (the shared spec + engine make these additive)
 - Optional in-memory adapter DX for TS/Python/Go
 
 ## License
