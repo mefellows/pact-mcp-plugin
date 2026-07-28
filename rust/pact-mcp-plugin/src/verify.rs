@@ -138,6 +138,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_nonexistent_server_command_is_a_clear_transport_error_not_a_hang() {
+        let server = StdioServerConfig {
+            command: "definitely-not-a-real-command-xyz".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            verify_interaction_stdio(&weather_interaction_melbourne(), &server, None),
+        )
+        .await
+        .expect("must fail fast, not hang");
+        assert!(matches!(result, Err(VerifyError::Transport(_))), "got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_exits_immediately_is_a_transport_error_not_a_hang() {
+        let server = StdioServerConfig {
+            command: "true".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            verify_interaction_stdio(&weather_interaction_melbourne(), &server, None),
+        )
+        .await
+        .expect("must fail fast, not hang");
+        assert!(matches!(result, Err(VerifyError::Transport(_))), "got: {result:?}");
+    }
+
+    fn weather_interaction_melbourne() -> McpInteraction {
+        McpInteraction::new(
+            Operation::ToolsCall,
+            serde_json::json!({ "name": "get_weather", "arguments": { "city": "Melbourne" } }),
+            serde_json::json!({ "content": [ { "type": "text", "text": "Sunny, 22C" } ], "isError": false }),
+        )
+    }
+
+    #[tokio::test]
     async fn verifies_resources_read_against_the_real_fixture_server() {
         let interaction = McpInteraction::new(
             Operation::ResourcesRead,

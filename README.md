@@ -29,10 +29,14 @@ Auth secrets use `${ENV}` interpolation and are **never written to the pact**.
 
 ## Quick start (TypeScript)
 
-Install the adapter and make the engine binary resolvable (see [engine binary resolution](adapters/ts/pact-mcp/README.md#engine-binary-resolution)):
+Install the adapter and the engine plugin:
 
 ```sh
 npm install @pact-mcp/adapter
+# engine: from a release…
+curl -fsSL https://raw.githubusercontent.com/mefellows/pact-mcp-plugin/main/scripts/install-plugin.sh | bash
+# …or from source:
+./scripts/install-local.sh
 ```
 
 **Consumer** — drive your real MCP client against a Pact-synthesized mock:
@@ -64,7 +68,7 @@ await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/wea
   .verify();
 ```
 
-See [`adapters/ts/pact-mcp/README.md`](adapters/ts/pact-mcp/README.md) for the full DX and [`docs/usage.md`](docs/usage.md) for HTTP + auth config.
+Pacts also verify through the **stock pact-js `Verifier`** (broker fetch, result publishing, `can-i-deploy` — see [`docs/usage.md`](docs/usage.md) and [`docs/bdct-walkthrough.md`](docs/bdct-walkthrough.md)). Provider states, `tools/list` / `resources/*` / `prompts/*` expectations, and multi-interaction tests are covered in [`adapters/ts/pact-mcp/README.md`](adapters/ts/pact-mcp/README.md).
 
 ## Architecture
 

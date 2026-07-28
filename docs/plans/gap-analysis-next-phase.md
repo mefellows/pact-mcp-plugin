@@ -47,22 +47,22 @@ Each task: failing test first → implement → commit. Do not reorder P1.
 
 ### P1 — Prove the core promise
 
-- [ ] **1.1 Standard-verifier E2E (G1).** Install the plugin locally (`~/.pact/plugins/mcp-0.1.0/` = binary + `pact-plugin.json`), then drive verification of `examples/*/pacts/*.json` through **pact-js `VerifierV3`** (and/or `pact_verifier_cli`). VERIFY UPSTREAM how the standard verifier supplies plugin-transport config (stdio command/args, HTTP url+auth) to `VerifyInteraction` — resolve open item §16.5, record an ADR (0008). Fix `server.rs` verify path as reality dictates. Add as an integration test + document in `usage.md`.
-- [ ] **1.2 Provider states (G2).** Design the state contract (ADR 0009): persist `providerStates` per interaction (standard Pact field); delivery = env var / `--state` arg for stdio spawn, HTTP state-change POST for http, `stateHandlers` callbacks in the TS adapter (in-process). Implement engine + CLI + adapter + fixture server support; example with a seeded state.
-- [ ] **1.3 Conformance completion (G3).** Add the ~10 missing fixtures listed above; make engine + TS suites pass them (both glob the directory, so fixtures auto-run). Where engine behavior is currently undefined (e.g. cross-shape, trailing blocks), the fixture defines it — fix the engine to conform. Update the README index table.
+- [x] **1.1 Standard-verifier E2E (G1).** Install the plugin locally (`~/.pact/plugins/mcp-0.1.0/` = binary + `pact-plugin.json`), then drive verification of `examples/*/pacts/*.json` through **pact-js `VerifierV3`** (and/or `pact_verifier_cli`). VERIFY UPSTREAM how the standard verifier supplies plugin-transport config (stdio command/args, HTTP url+auth) to `VerifyInteraction` — resolve open item §16.5, record an ADR (0008). Fix `server.rs` verify path as reality dictates. Add as an integration test + document in `usage.md`.
+- [x] **1.2 Provider states (G2).** Design the state contract (ADR 0009): persist `providerStates` per interaction (standard Pact field); delivery = env var / `--state` arg for stdio spawn, HTTP state-change POST for http, `stateHandlers` callbacks in the TS adapter (in-process). Implement engine + CLI + adapter + fixture server support; example with a seeded state.
+- [x] **1.3 Conformance completion (G3).** Add the ~10 missing fixtures listed above; make engine + TS suites pass them (both glob the directory, so fixtures auto-run). Where engine behavior is currently undefined (e.g. cross-shape, trailing blocks), the fixture defines it — fix the engine to conform. Update the README index table.
 
 ### P2 — Complete the authoring surface
 
-- [ ] **2.1 TS DSL (G4):** `expectsToolsList([...])` (or similar) + multiple interactions per `McpPact` test; verify multi-interaction pacts mock + verify correctly end-to-end.
-- [ ] **2.2 `resources/read` + `prompts/get` (+ their lists) (G5):** extend interaction-schema §3.3 + matching-semantics (mirror the tools defaults table), model/enum, mock handlers, verify, fixtures, adapter DX, fixture-server support. Same vertical-slice discipline as Phase 1.
+- [x] **2.1 TS DSL (G4):** `expectsToolsList([...])` (or similar) + multiple interactions per `McpPact` test; verify multi-interaction pacts mock + verify correctly end-to-end.
+- [x] **2.2 `resources/read` + `prompts/get` (+ their lists) (G5):** extend interaction-schema §3.3 + matching-semantics (mirror the tools defaults table), model/enum, mock handlers, verify, fixtures, adapter DX, fixture-server support. Same vertical-slice discipline as Phase 1.
 
 ### P3 — Make it shippable
 
-- [ ] **3.1 Commit `README.md` + `LICENSE`** (currently untracked). Review README for accuracy against current state first.
-- [ ] **3.2 CI (G6):** GitHub Actions — Rust build+test (linux/macos/windows), TS adapter test, conformance as an explicit named gate. Cache cargo + npm.
-- [ ] **3.3 Release packaging (G6):** `scripts/install.sh` + release workflow producing per-platform archives (binary + manifest, checksums) laid out for `pact-plugin-cli install` (VERIFY UPSTREAM its expected asset naming) and manual install.
-- [ ] **3.4 BDCT walkthrough (G7):** example/doc publishing the consumer pact to PactFlow + `can-i-deploy`; ties to the §13 Drift-MCP positioning.
-- [ ] **3.5 Hardening (G8):** capability-assertion failure test; transport crash/timeout negative tests; docs pass over `usage.md` (add stdio quickstart + provider states; currently HTTP/auth-only).
+- [x] **3.1 Commit `README.md` + `LICENSE`** (currently untracked). Review README for accuracy against current state first.
+- [x] **3.2 CI (G6):** GitHub Actions — Rust build+test (linux/macos/windows), TS adapter test, conformance as an explicit named gate. Cache cargo + npm.
+- [x] **3.3 Release packaging (G6):** `scripts/install.sh` + release workflow producing per-platform archives (binary + manifest, checksums) laid out for `pact-plugin-cli install` (VERIFY UPSTREAM its expected asset naming) and manual install.
+- [x] **3.4 BDCT walkthrough (G7):** example/doc publishing the consumer pact to PactFlow + `can-i-deploy`; ties to the §13 Drift-MCP positioning.
+- [x] **3.5 Hardening (G8):** capability-assertion failure test; transport crash/timeout negative tests; docs pass over `usage.md` (add stdio quickstart + provider states; currently HTTP/auth-only).
 
 ### P4 — Unchanged deferrals
 OAuth2 dynamic client registration; in-memory linked pair; Python/Go adapters; Java loopback example.

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  PACT_DO_NOT_TRACK: "true"
+
+jobs:
+  rust:
+    name: Rust engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install fixture MCP servers
+        run: npm ci --prefix examples/fixtures
+      # The conformance suite is the anti-divergence gate (docs/spec/conformance):
+      # run it as its own named step so a failure is unmistakable.
+      - name: Conformance gate
+        run: cargo test --manifest-path rust/Cargo.toml --test conformance
+      - name: Test
+        run: cargo test --manifest-path rust/Cargo.toml
+
+  ts-adapter:
+    name: TypeScript adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install fixture MCP servers
+        run: npm ci --prefix examples/fixtures
+      - name: Install adapter deps
+        run: npm ci --prefix adapters/ts/pact-mcp
+      # npm test's globalSetup builds the engine (release) and installs it at
+      # ~/.pact/plugins so the standard pact-js Verifier E2E runs for real.
+      - name: Test (incl. conformance + standard-verifier E2E)
+        run: npm test --prefix adapters/ts/pact-mcp
