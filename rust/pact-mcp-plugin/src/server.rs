@@ -592,9 +592,13 @@ pub fn interaction_transport(interaction: &serde_json::Value) -> &'static str {
 pub fn interaction_from_value(interaction: &serde_json::Value) -> Result<crate::mcp::model::McpInteraction, String> {
     use crate::mcp::model::{McpInteraction, Operation, ServerHint};
 
+    let provider_states = interaction.get("providerStates").cloned();
+
     // Shape 1: single merged fragment.
     if let Some(mcp) = interaction.pointer("/contents/mcp").or_else(|| interaction.get("mcp")) {
-        return serde_json::from_value(mcp.clone()).map_err(|e| e.to_string());
+        let mut parsed: McpInteraction = serde_json::from_value(mcp.clone()).map_err(|e| e.to_string())?;
+        parsed.provider_states = provider_states;
+        return Ok(parsed);
     }
 
     // Shape 2: real two-part sync message. Body lives under `contents.content`.
@@ -635,6 +639,7 @@ pub fn interaction_from_value(interaction: &serde_json::Value) -> Result<crate::
 
     let mut mcp = McpInteraction::new(operation, request, response);
     mcp.server = server;
+    mcp.provider_states = provider_states;
     Ok(mcp)
 }
 

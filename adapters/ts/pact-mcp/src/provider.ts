@@ -4,7 +4,11 @@
 // compare the response) runs entirely in the Rust engine via its `verify` CLI —
 // no TS-side matching. The provider's real MCP server is spawned unchanged.
 
+import { readFileSync } from "node:fs";
 import { runVerify, runVerifyHttp, HttpAuth, VerifyResult } from "./engine";
+
+/** State setup callback; receives the state's params (ADR 0009). */
+export type StateHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown;
 
 export interface StdioServerTransport {
   type: "stdio";
@@ -32,8 +36,34 @@ export interface McpProviderVerifierOptions {
 
 export class McpProviderVerifier {
   private serverTransport?: ServerTransport;
+  private handlers: Record<string, StateHandler> = {};
 
   constructor(private readonly opts: McpProviderVerifierOptions) {}
+
+  /**
+   * Register provider-state handlers, invoked in-process before each pact is
+   * verified (ADR 0009). Engine-spawned stdio servers ALSO receive the states
+   * via PACT_MCP_PROVIDER_STATES env — use handlers for state that lives
+   * behind seams your test controls (databases, files, ...).
+   */
+  stateHandlers(handlers: Record<string, StateHandler>): this {
+    this.handlers = { ...this.handlers, ...handlers };
+    return this;
+  }
+
+  /** Run registered handlers for every state of every interaction in a pact. */
+  private async applyStates(pactUrl: string): Promise<void> {
+    if (Object.keys(this.handlers).length === 0) return;
+    const pact = JSON.parse(readFileSync(pactUrl, "utf8")) as {
+      interactions?: { providerStates?: { name: string; params?: Record<string, unknown> }[] }[];
+    };
+    for (const interaction of pact.interactions ?? []) {
+      for (const state of interaction.providerStates ?? []) {
+        const handler = this.handlers[state.name];
+        if (handler) await handler(state.params ?? {});
+      }
+    }
+  }
 
   /**
    * Verify against the provider's real MCP server. Two forms:
@@ -60,6 +90,7 @@ export class McpProviderVerifier {
     const results: VerifyResult[] = [];
     const failures: string[] = [];
     for (const pactUrl of this.opts.pactUrls) {
+      await this.applyStates(pactUrl);
       const result =
         transport.type === "http"
           ? runVerifyHttp(pactUrl, transport.url, transport.auth)

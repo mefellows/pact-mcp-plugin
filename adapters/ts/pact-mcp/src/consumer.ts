@@ -49,8 +49,19 @@ export class McpPact {
   private toolArgs: unknown = {};
   private response: unknown;
   private description = "";
+  private providerStates: { name: string; params?: Record<string, unknown> }[] = [];
 
   constructor(private readonly opts: McpPactOptions) {}
+
+  /**
+   * Declare a provider state (standard V4 `providerStates`, ADR 0009). At
+   * verification time the state is applied via the verifier's `stateHandlers`
+   * or, for engine-spawned stdio servers, `PACT_MCP_PROVIDER_STATES` env.
+   */
+  given(state: string, params?: Record<string, unknown>): this {
+    this.providerStates.push(params ? { name: state, params } : { name: state });
+    return this;
+  }
 
   /** The consumer's real Client will call `tools/call` for `name` with `args`. */
   whenClientCallsTool(name: string, args: unknown = {}): this {
@@ -88,8 +99,11 @@ export class McpPact {
 
     // 1. Author + emit the real pact via pact-js (invokes Rust ConfigureInteraction).
     const pact = new PactV4({ consumer: this.opts.consumer, provider: this.opts.provider, dir });
-    await pact
-      .addSynchronousInteraction(this.description)
+    let interaction = pact.addSynchronousInteraction(this.description);
+    for (const state of this.providerStates) {
+      interaction = interaction.given(state.name, state.params as never);
+    }
+    await interaction
       .usingPlugin({ plugin: "mcp", version })
       .withPluginContents(JSON.stringify(mcpContents), "application/mcp+json")
       .executeTest(async () => {

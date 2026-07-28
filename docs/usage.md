@@ -95,6 +95,27 @@ text/event-stream`, and both JSON-body and SSE response modes automatically
 (rmcp — see ADR 0007). A 401 from missing/invalid auth surfaces as a clear
 verification failure.
 
+## Provider states
+
+Declare states with `given(...)` (standard V4 `providerStates` — ADR 0009):
+
+```ts
+await new McpPact({ consumer: "weather-agent", provider: "weather-mcp" })
+  .given("the Hobart weather is known", { city: "Hobart", weather: "Windy, 12C" })
+  .whenClientCallsTool("get_weather", { city: "Hobart" })
+  // ...
+```
+
+Apply them at verification time by whichever route fits your runner:
+
+1. **Standard pact-js Verifier:** ordinary `stateHandlers` — they fire before
+   each plugin-transport interaction with no extra wiring.
+2. **Engine-spawned stdio servers:** the engine sets
+   `PACT_MCP_PROVIDER_STATES` (JSON `[{name, params}]`) on the child process;
+   the server seeds itself at startup. One spawn per interaction — no leakage.
+3. **`McpProviderVerifier.stateHandlers({...})`:** in-process callbacks invoked
+   before verification.
+
 ## Consumer mock over HTTP
 
 ```ts

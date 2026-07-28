@@ -2,13 +2,13 @@
 // verifies through the STANDARD pact-js Verifier (pact-core FFI verifier +
 // plugin driver + our installed plugin), no bespoke runner.
 //
-// beforeAll (re)installs the current engine build at ~/.pact/plugins/mcp-<v>/
-// via scripts/install-local.sh so the driver loads THIS build, not a stale one.
+// The vitest globalSetup (test/global-setup.ts) installs the current engine
+// build at ~/.pact/plugins/mcp-<v>/ so the driver loads THIS build.
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { Verifier } from "@pact-foundation/pact";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { execFileSync, spawn, ChildProcess } from "node:child_process";
+import { spawn, ChildProcess } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,10 +51,6 @@ async function emitPact(dir: string, mockTransport: "stdio" | "http"): Promise<s
 }
 
 describe("standard pact-js Verifier E2E (ADR 0008)", () => {
-  beforeAll(() => {
-    execFileSync("bash", [join(repoRoot, "scripts", "install-local.sh")], { stdio: "inherit" });
-  }, 300_000);
-
   it("verifies an mcp-http pact against the real HTTP fixture server", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pact-sv-"));
     const pactPath = await emitPact(dir, "http");

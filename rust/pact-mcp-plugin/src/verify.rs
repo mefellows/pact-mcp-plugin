@@ -36,7 +36,16 @@ pub async fn verify_interaction_stdio(
     server: &StdioServerConfig,
     matching_rules_response: Option<&serde_json::Value>,
 ) -> Result<MatchResult, VerifyError> {
-    let client = StdioClient::connect(&server.command, &server.args, &server.env).await?;
+    // Provider states (ADR 0009): passed to the spawned server via env; one
+    // spawn per interaction so states cannot leak across interactions.
+    let mut env = server.env.clone();
+    if let Some(states) = &interaction.provider_states {
+        env.insert(
+            "PACT_MCP_PROVIDER_STATES".to_string(),
+            serde_json::to_string(states).unwrap_or_else(|_| "[]".to_string()),
+        );
+    }
+    let client = StdioClient::connect(&server.command, &server.args, &env).await?;
     let actual = client.perform(interaction.operation, &interaction.request).await?;
     client.close().await?;
 
@@ -106,6 +115,26 @@ mod tests {
 
         assert!(!result.is_match());
         assert_eq!(result.mismatch_paths(), ["$.content[0].text".to_string()].into_iter().collect());
+    }
+
+    #[tokio::test]
+    async fn seeds_provider_state_into_the_spawned_server() {
+        // Hobart is unknown to the fixture unless the provider state seeds it
+        // (ADR 0009: PACT_MCP_PROVIDER_STATES on the child env).
+        let mut interaction = McpInteraction::new(
+            Operation::ToolsCall,
+            serde_json::json!({ "name": "get_weather", "arguments": { "city": "Hobart" } }),
+            serde_json::json!({ "content": [ { "type": "text", "text": "Windy, 12C" } ], "isError": false }),
+        );
+        interaction.provider_states = Some(serde_json::json!([
+            { "name": "the Hobart weather is known", "params": { "city": "Hobart", "weather": "Windy, 12C" } }
+        ]));
+
+        let result = verify_interaction_stdio(&interaction, &fixture_server(), None)
+            .await
+            .expect("verification should run without a transport error");
+
+        assert!(result.is_match(), "expected state-seeded match, got: {:?}", result.mismatches);
     }
 
     #[tokio::test]

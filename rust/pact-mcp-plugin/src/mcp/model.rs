@@ -74,6 +74,11 @@ pub struct McpInteraction {
     pub response: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server: Option<ServerHint>,
+    /// Provider states from the interaction's standard V4 `providerStates`
+    /// field (ADR 0009). Engine-internal (applied at verification time); never
+    /// part of the persisted `mcp` fragment.
+    #[serde(skip)]
+    pub provider_states: Option<Value>,
 }
 
 impl McpInteraction {
@@ -84,6 +89,7 @@ impl McpInteraction {
             request,
             response,
             server: None,
+            provider_states: None,
         }
     }
 }
