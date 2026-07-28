@@ -1,0 +1,33 @@
+{
+  "description": "tools/list: matched tool whose inputSchema is missing a key the consumer specified — mismatch at the schema path",
+  "operation": "tools/list",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/list",
+      "request": {},
+      "response": {
+        "tools": [
+          {
+            "name": "get_weather",
+            "inputSchema": { "type": "object", "properties": { "city": { "type": "string" } } }
+          }
+        ]
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "tools": [
+      {
+        "name": "get_weather",
+        "inputSchema": { "type": "object", "properties": { "location": { "type": "string" } } }
+      }
+    ]
+  },
+  "expected": {
+    "match": false,
+    "mismatchPaths": [ "$.tools[?(@.name=='get_weather')].inputSchema.properties.city" ]
+  }
+}

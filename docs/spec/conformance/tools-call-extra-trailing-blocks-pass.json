@@ -1,0 +1,26 @@
+{
+  "description": "content[]: extra trailing actual blocks are ignored by default (consumer-driven, matching-semantics §2.1)",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+        "isError": false
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [
+      { "type": "text", "text": "Sunny, 22C" },
+      { "type": "text", "text": "UV index: extreme" },
+      { "type": "image", "data": "aWJhc2U2NA==", "mimeType": "image/png" }
+    ],
+    "isError": false
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

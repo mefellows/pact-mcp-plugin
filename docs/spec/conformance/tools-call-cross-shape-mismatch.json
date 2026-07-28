@@ -1,0 +1,21 @@
+{
+  "description": "cross-shape: expected a success result but the actual is a JSON-RPC protocol error — one mismatch at $",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+        "isError": false
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "error": { "code": -32602, "message": "Invalid params" }
+  },
+  "expected": { "match": false, "mismatchPaths": [ "$" ] }
+}

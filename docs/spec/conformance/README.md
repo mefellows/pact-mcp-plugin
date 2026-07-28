@@ -46,4 +46,19 @@ Exact mismatch **message wording is NOT asserted** (engine-defined, may evolve).
 | `tools-call-text-mismatch.json` | wrong literal text ⇒ mismatch at `$.content[0].text` |
 | `tools-call-iserror-mismatch.json` | surprise `isError:true` ⇒ mismatch at `$.isError` |
 | `tools-call-error-result-pass.json` | JSON-RPC error: code exact, message by type |
+| `tools-call-error-data-structure-mismatch.json` | `error.data` by structure: missing specified key ⇒ mismatch |
+| `tools-call-cross-shape-mismatch.json` | expected success but actual is a protocol error ⇒ mismatch at `$` |
+| `tools-call-image-block-pass.json` | image: `mimeType` exact, `data` type-only ⇒ different payload passes |
+| `tools-call-image-mimetype-mismatch.json` | image: wrong `mimeType` ⇒ mismatch |
+| `tools-call-resource-block-pass.json` | resource: `type` + `resource.uri` exact ⇒ pass; extra fields ignored |
+| `tools-call-resource-uri-mismatch.json` | resource: wrong `resource.uri` ⇒ mismatch |
+| `tools-call-structured-content-pass.json` | `structuredContent`: provided keys matched, extra actual keys ignored |
+| `tools-call-structured-content-mismatch.json` | `structuredContent`: wrong scalar + missing key ⇒ mismatches |
+| `tools-call-extra-trailing-blocks-pass.json` | extra trailing actual content blocks ignored (consumer-driven) |
 | `tools-list-subset-pass.json` | consumer asserts one tool; server exposes more ⇒ pass |
+| `tools-list-missing-tool-mismatch.json` | relied-on tool absent ⇒ mismatch keyed by name |
+| `tools-list-inputschema-mismatch.json` | matched tool's `inputSchema` missing a specified key ⇒ mismatch |
+
+Request-side matching (mock interaction selection, matching-semantics §4) is
+covered by engine unit tests (`content/mod.rs`), not fixtures — the fixture
+format is a response comparison.

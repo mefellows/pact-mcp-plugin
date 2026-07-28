@@ -1,0 +1,24 @@
+{
+  "description": "structuredContent: provided keys matched (exact scalars), extra actual keys ignored",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+        "isError": false,
+        "structuredContent": { "city": "Melbourne", "tempC": 22 }
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+    "isError": false,
+    "structuredContent": { "city": "Melbourne", "tempC": 22, "humidity": 40, "source": "bom" }
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

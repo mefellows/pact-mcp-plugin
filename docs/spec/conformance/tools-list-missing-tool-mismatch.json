@@ -1,0 +1,26 @@
+{
+  "description": "tools/list: a tool the consumer relies on is absent from the actual list — mismatch keyed by name",
+  "operation": "tools/list",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/list",
+      "request": {},
+      "response": {
+        "tools": [
+          { "name": "get_weather" },
+          { "name": "get_forecast" }
+        ]
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "tools": [ { "name": "get_weather" }, { "name": "list_stations" } ]
+  },
+  "expected": {
+    "match": false,
+    "mismatchPaths": [ "$.tools[?(@.name=='get_forecast')]" ]
+  }
+}

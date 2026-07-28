@@ -1,0 +1,22 @@
+{
+  "description": "resource block: wrong resource.uri is a mismatch (exact by default)",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_report", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "resource", "resource": { "uri": "weather://melbourne/report" } } ],
+        "isError": false
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [ { "type": "resource", "resource": { "uri": "weather://sydney/report" } } ],
+    "isError": false
+  },
+  "expected": { "match": false, "mismatchPaths": [ "$.content[0].resource.uri" ] }
+}

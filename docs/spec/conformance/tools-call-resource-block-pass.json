@@ -1,0 +1,22 @@
+{
+  "description": "resource block: type + resource.uri exact match passes; other resource fields ignored unless ruled",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_report", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "resource", "resource": { "uri": "weather://melbourne/report" } } ],
+        "isError": false
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [ { "type": "resource", "resource": { "uri": "weather://melbourne/report", "mimeType": "text/plain", "text": "Sunny" } } ],
+    "isError": false
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

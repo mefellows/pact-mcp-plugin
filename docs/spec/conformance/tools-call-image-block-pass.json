@@ -1,0 +1,22 @@
+{
+  "description": "image block: mimeType exact, data type-only by default — different base64 payload still passes",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_radar", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "image", "data": "aWJhc2U2NA==", "mimeType": "image/png" } ],
+        "isError": false
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [ { "type": "image", "data": "b3RoZXJiYXNlNjQ=", "mimeType": "image/png" } ],
+    "isError": false
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

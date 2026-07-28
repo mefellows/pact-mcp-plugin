@@ -1,0 +1,27 @@
+{
+  "description": "structuredContent: wrong scalar value and missing key are mismatches at their paths",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+        "isError": false,
+        "structuredContent": { "city": "Melbourne", "tempC": 22 }
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "content": [ { "type": "text", "text": "Sunny, 22C" } ],
+    "isError": false,
+    "structuredContent": { "tempC": 19 }
+  },
+  "expected": {
+    "match": false,
+    "mismatchPaths": [ "$.structuredContent.city", "$.structuredContent.tempC" ]
+  }
+}

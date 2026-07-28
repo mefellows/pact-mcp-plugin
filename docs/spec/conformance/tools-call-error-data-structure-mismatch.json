@@ -1,0 +1,20 @@
+{
+  "description": "JSON-RPC error result: error.data compared by structure — a missing key the consumer specified is a mismatch",
+  "operation": "tools/call",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "tools/call",
+      "request": { "name": "get_weather", "arguments": { } },
+      "response": {
+        "error": { "code": -32602, "message": "Invalid params", "data": { "field": "city" } }
+      }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "error": { "code": -32602, "message": "Missing required argument", "data": { "hint": "pass a city" } }
+  },
+  "expected": { "match": false, "mismatchPaths": [ "$.error.data.field" ] }
+}
