@@ -44,36 +44,67 @@ export interface McpTestScope {
   transport: Transport;
 }
 
+interface PendingInteraction {
+  description: string;
+  operation: "tools/call" | "tools/list";
+  request: unknown;
+  response?: unknown;
+  providerStates: { name: string; params?: Record<string, unknown> }[];
+}
+
 export class McpPact {
-  private toolName?: string;
-  private toolArgs: unknown = {};
-  private response: unknown;
-  private description = "";
-  private providerStates: { name: string; params?: Record<string, unknown> }[] = [];
+  private interactions: PendingInteraction[] = [];
+  private pendingStates: { name: string; params?: Record<string, unknown> }[] = [];
 
   constructor(private readonly opts: McpPactOptions) {}
 
   /**
-   * Declare a provider state (standard V4 `providerStates`, ADR 0009). At
-   * verification time the state is applied via the verifier's `stateHandlers`
-   * or, for engine-spawned stdio servers, `PACT_MCP_PROVIDER_STATES` env.
+   * Declare a provider state (standard V4 `providerStates`, ADR 0009) for the
+   * NEXT declared interaction. At verification time the state is applied via
+   * the verifier's `stateHandlers` or, for engine-spawned stdio servers,
+   * `PACT_MCP_PROVIDER_STATES` env.
    */
   given(state: string, params?: Record<string, unknown>): this {
-    this.providerStates.push(params ? { name: state, params } : { name: state });
+    this.pendingStates.push(params ? { name: state, params } : { name: state });
     return this;
   }
 
   /** The consumer's real Client will call `tools/call` for `name` with `args`. */
   whenClientCallsTool(name: string, args: unknown = {}): this {
-    this.toolName = name;
-    this.toolArgs = args;
-    this.description = `a tools/call to ${name}`;
+    const nth = this.interactions.filter((i) => i.operation === "tools/call").length;
+    this.interactions.push({
+      description: `a tools/call to ${name}${nth > 0 ? ` (${nth + 1})` : ""}`,
+      operation: "tools/call",
+      request: { name, arguments: args },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
     return this;
   }
 
   /** The expected `tools/call` result (may contain matchers from ./matchers). */
   willRespondWith(response: unknown): this {
-    this.response = response;
+    const latest = this.interactions[this.interactions.length - 1];
+    if (!latest || latest.operation !== "tools/call" || latest.response !== undefined) {
+      throw new Error("willRespondWith(...) must follow whenClientCallsTool(...)");
+    }
+    latest.response = response;
+    return this;
+  }
+
+  /**
+   * The consumer relies on these tools appearing in `tools/list` (subset,
+   * consumer-driven — the server may expose more; matching-semantics §3).
+   */
+  expectsToolsList(tools: { name: string; inputSchema?: unknown }[]): this {
+    this.interactions.push({
+      description: "a tools/list",
+      operation: "tools/list",
+      request: {},
+      response: { tools },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
     return this;
   }
 
@@ -82,33 +113,43 @@ export class McpPact {
    * engine mock. Throws if any interaction was not matched.
    */
   async executeTest<T>(test: (scope: McpTestScope) => Promise<T>): Promise<T> {
-    if (!this.toolName) throw new Error("call whenClientCallsTool(...) before executeTest");
+    if (this.interactions.length === 0) {
+      throw new Error("declare at least one interaction (whenClientCallsTool / expectsToolsList) before executeTest");
+    }
+    const missing = this.interactions.find((i) => i.response === undefined);
+    if (missing) {
+      throw new Error(`interaction "${missing.description}" has no willRespondWith(...)`);
+    }
 
     const dir = this.opts.dir ?? join(process.cwd(), "pacts");
     const version = this.opts.pluginVersion ?? "0.1.0";
+    const serverHint = (this.opts.mockTransport ?? "stdio") === "http" ? "http" : "stdio";
 
-    const mcpContents = {
-      "pact:content-type": "application/mcp+json",
-      mcp: {
-        operation: "tools/call",
-        request: { name: this.toolName, arguments: buildDsl(this.toolArgs) },
-        response: buildDsl(this.response),
-        server: { transport: (this.opts.mockTransport ?? "stdio") === "http" ? "http" : "stdio" },
-      },
-    };
-
-    // 1. Author + emit the real pact via pact-js (invokes Rust ConfigureInteraction).
+    // 1. Author + emit the real pact via pact-js (invokes Rust
+    //    ConfigureInteraction). One executeTest per interaction; pact-core
+    //    merges them into the same pact file.
     const pact = new PactV4({ consumer: this.opts.consumer, provider: this.opts.provider, dir });
-    let interaction = pact.addSynchronousInteraction(this.description);
-    for (const state of this.providerStates) {
-      interaction = interaction.given(state.name, state.params as never);
+    for (const pending of this.interactions) {
+      const mcpContents = {
+        "pact:content-type": "application/mcp+json",
+        mcp: {
+          operation: pending.operation,
+          request: buildDsl(pending.request),
+          response: buildDsl(pending.response),
+          server: { transport: serverHint },
+        },
+      };
+      let interaction = pact.addSynchronousInteraction(pending.description);
+      for (const state of pending.providerStates) {
+        interaction = interaction.given(state.name, state.params as never);
+      }
+      await interaction
+        .usingPlugin({ plugin: "mcp", version })
+        .withPluginContents(JSON.stringify(mcpContents), "application/mcp+json")
+        .executeTest(async () => {
+          // no-op: this call authors + writes the pact file.
+        });
     }
-    await interaction
-      .usingPlugin({ plugin: "mcp", version })
-      .withPluginContents(JSON.stringify(mcpContents), "application/mcp+json")
-      .executeTest(async () => {
-        // no-op: this call authors + writes the pact file.
-      });
 
     const pactPath = join(dir, `${this.opts.consumer}-${this.opts.provider}.json`);
     if (!existsSync(pactPath)) {
