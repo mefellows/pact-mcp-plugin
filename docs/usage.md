@@ -24,7 +24,39 @@ A missing env var is a hard error (never a silent empty header). The invariant
 Auth is injected on **every** HTTP request, including the `initialize` handshake.
 stdio transports pass auth via env/args (no HTTP headers).
 
-## Provider verification
+## Provider verification — standard pact-js Verifier (recommended)
+
+With the plugin installed (`scripts/install-local.sh`, or a release install
+under `~/.pact/plugins/mcp-<version>/`), MCP pacts verify through the **stock
+pact-js `Verifier`** — no bespoke runner (ADR 0008). Pacts emitted by
+`McpPact` are already stamped with the transport routing the verifier needs.
+
+```ts
+import { Verifier } from "@pact-foundation/pact";
+
+// Streamable HTTP provider (running/deployed server):
+await new Verifier({
+  provider: "weather-mcp",
+  providerBaseUrl: `http://127.0.0.1:${port}`,
+  pactUrls: ["./pacts/weather-agent-weather-mcp.json"],
+  transports: [{ protocol: "mcp-http", port }],
+}).verifyProvider();
+
+// stdio provider — the verifier can't carry a spawn spec, so pass it via env:
+process.env.PACT_MCP_SERVER_COMMAND = "node";
+process.env.PACT_MCP_SERVER_ARGS = "dist/server.js";
+await new Verifier({
+  provider: "weather-mcp",
+  providerBaseUrl: "http://127.0.0.1:65500", // unused for plugin transports
+  pactUrls: ["./pacts/weather-agent-weather-mcp.json"],
+}).verifyProvider();
+```
+
+For `mcp-http`, auth comes from `PACT_MCP_AUTH` (a JSON auth config as below,
+`${ENV}` interpolation applies) and a non-root endpoint path from
+`PACT_MCP_SERVER_PATH`.
+
+## Provider verification — adapter / engine CLI
 
 ### stdio (spawn the real server)
 
