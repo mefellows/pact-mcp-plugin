@@ -1,0 +1,18 @@
+{
+  "description": "resources/read: wrong text scalar is a mismatch at its path",
+  "operation": "resources/read",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "resources/read",
+      "request": { "uri": "weather://melbourne/report" },
+      "response": { "contents": [ { "uri": "weather://melbourne/report", "text": "Sunny all week" } ] }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "contents": [ { "uri": "weather://melbourne/report", "text": "Raining all week" } ]
+  },
+  "expected": { "match": false, "mismatchPaths": [ "$.contents[0].text" ] }
+}

@@ -38,6 +38,19 @@
 - **Subset match** on `tools[]` keyed by `name`: every expected tool must be present in the actual list (by `name`); actual may contain more. Order-independent.
 - For each matched tool, compare `inputSchema` by **structure** (JSON Schema shape) using the consumer's matchers; default: keys the consumer specified must be present and type-compatible; extra keys ignored.
 
+## 3.5 `resources/read`, `prompts/get` results
+
+Structural comparison rooted at `$`: keys the consumer specified must be
+present and match (scalars **exact** unless a matcher rules otherwise); extra
+actual keys/array-tail items are ignored (consumer-driven). Cross-shape
+(success vs JSON-RPC `error`) mismatches at `$` as in §2.4.
+
+## 3.6 `resources/list`, `prompts/list` results
+
+Subset match like §3: every expected item must be present in the actual list —
+`resources[]` keyed by `uri`, `prompts[]` keyed by `name` — order-independent;
+other specified keys on a matched item are compared structurally.
+
 ## 4. Request matching (mock server)
 
 When the mock receives a `tools/call`, select the interaction whose `mcp.request.name` equals the incoming tool name AND whose `arguments` match under `matchingRules.request` (default exact for literals, matchers as authored). No match ⇒ record a mismatch and return a protocol error to the client. Ambiguous match (>1) ⇒ first wins, but log a warning.

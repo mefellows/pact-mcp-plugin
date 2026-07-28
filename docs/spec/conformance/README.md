@@ -58,6 +58,11 @@ Exact mismatch **message wording is NOT asserted** (engine-defined, may evolve).
 | `tools-list-subset-pass.json` | consumer asserts one tool; server exposes more ⇒ pass |
 | `tools-list-missing-tool-mismatch.json` | relied-on tool absent ⇒ mismatch keyed by name |
 | `tools-list-inputschema-mismatch.json` | matched tool's `inputSchema` missing a specified key ⇒ mismatch |
+| `resources-read-pass.json` | resources/read: specified contents keys matched, extras ignored |
+| `resources-read-text-mismatch.json` | resources/read: wrong text scalar ⇒ mismatch |
+| `resources-list-subset-pass.json` | resources/list: subset by `uri`, order-independent |
+| `prompts-get-pass.json` | prompts/get: structural match; type matcher on message text |
+| `prompts-list-missing-mismatch.json` | prompts/list: relied-on prompt absent ⇒ mismatch by name |
 
 Request-side matching (mock interaction selection, matching-semantics §4) is
 covered by engine unit tests (`content/mod.rs`), not fixtures — the fixture

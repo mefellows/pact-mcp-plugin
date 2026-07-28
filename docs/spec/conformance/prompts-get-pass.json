@@ -1,0 +1,23 @@
+{
+  "description": "prompts/get: specified message keys matched; type matcher on text accepts any string; extra actual keys ignored",
+  "operation": "prompts/get",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "prompts/get",
+      "request": { "name": "weather-report", "arguments": { "city": "Melbourne" } },
+      "response": {
+        "messages": [ { "role": "user", "content": { "type": "text", "text": "Write a weather report for Melbourne" } } ]
+      }
+    },
+    "matchingRules": {
+      "response": { "$.messages[0].content.text": { "matchers": [ { "match": "type" } ] } }
+    },
+    "generators": {}
+  },
+  "actual": {
+    "description": "Compose a weather report for a city",
+    "messages": [ { "role": "user", "content": { "type": "text", "text": "Please write a report for Melbourne" } } ]
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

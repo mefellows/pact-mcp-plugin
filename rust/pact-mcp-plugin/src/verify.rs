@@ -138,6 +138,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verifies_resources_read_against_the_real_fixture_server() {
+        let interaction = McpInteraction::new(
+            Operation::ResourcesRead,
+            serde_json::json!({ "uri": "weather://melbourne/report" }),
+            serde_json::json!({ "contents": [ { "uri": "weather://melbourne/report", "text": "Sunny all week" } ] }),
+        );
+        let result = verify_interaction_stdio(&interaction, &fixture_server(), None)
+            .await
+            .expect("verification should run without a transport error");
+        assert!(result.is_match(), "mismatches: {:?}", result.mismatches);
+    }
+
+    #[tokio::test]
+    async fn verifies_prompts_get_against_the_real_fixture_server() {
+        let interaction = McpInteraction::new(
+            Operation::PromptsGet,
+            serde_json::json!({ "name": "weather-report", "arguments": { "city": "Melbourne" } }),
+            serde_json::json!({
+                "messages": [ { "role": "user", "content": { "type": "text", "text": "Write a weather report for Melbourne" } } ]
+            }),
+        );
+        let result = verify_interaction_stdio(&interaction, &fixture_server(), None)
+            .await
+            .expect("verification should run without a transport error");
+        assert!(result.is_match(), "mismatches: {:?}", result.mismatches);
+    }
+
+    #[tokio::test]
+    async fn verifies_resources_and_prompts_list_subsets_against_the_real_fixture_server() {
+        let resources = McpInteraction::new(
+            Operation::ResourcesList,
+            serde_json::json!({}),
+            serde_json::json!({ "resources": [ { "uri": "weather://melbourne/report" } ] }),
+        );
+        let prompts = McpInteraction::new(
+            Operation::PromptsList,
+            serde_json::json!({}),
+            serde_json::json!({ "prompts": [ { "name": "weather-report" } ] }),
+        );
+        for interaction in [resources, prompts] {
+            let result = verify_interaction_stdio(&interaction, &fixture_server(), None)
+                .await
+                .expect("verification should run without a transport error");
+            assert!(result.is_match(), "mismatches: {:?}", result.mismatches);
+        }
+    }
+
+    #[tokio::test]
+    async fn reports_a_mismatch_for_a_wrong_resource_text() {
+        let interaction = McpInteraction::new(
+            Operation::ResourcesRead,
+            serde_json::json!({ "uri": "weather://melbourne/report" }),
+            serde_json::json!({ "contents": [ { "uri": "weather://melbourne/report", "text": "Raining all week" } ] }),
+        );
+        let result = verify_interaction_stdio(&interaction, &fixture_server(), None)
+            .await
+            .expect("verification should run without a transport error");
+        assert!(!result.is_match());
+        assert_eq!(
+            result.mismatch_paths(),
+            ["$.contents[0].text".to_string()].into_iter().collect()
+        );
+    }
+
+    #[tokio::test]
     async fn reports_isError_mismatch_for_an_unknown_city() {
         let interaction = McpInteraction::new(
             Operation::ToolsCall,

@@ -38,6 +38,14 @@ pub enum Operation {
     ToolsCall,
     #[serde(rename = "tools/list")]
     ToolsList,
+    #[serde(rename = "resources/read")]
+    ResourcesRead,
+    #[serde(rename = "resources/list")]
+    ResourcesList,
+    #[serde(rename = "prompts/get")]
+    PromptsGet,
+    #[serde(rename = "prompts/list")]
+    PromptsList,
 }
 
 impl Operation {
@@ -46,6 +54,10 @@ impl Operation {
         match self {
             Operation::ToolsCall => "tools/call",
             Operation::ToolsList => "tools/list",
+            Operation::ResourcesRead => "resources/read",
+            Operation::ResourcesList => "resources/list",
+            Operation::PromptsGet => "prompts/get",
+            Operation::PromptsList => "prompts/list",
         }
     }
 
@@ -53,6 +65,10 @@ impl Operation {
         match s {
             "tools/call" => Some(Operation::ToolsCall),
             "tools/list" => Some(Operation::ToolsList),
+            "resources/read" => Some(Operation::ResourcesRead),
+            "resources/list" => Some(Operation::ResourcesList),
+            "prompts/get" => Some(Operation::PromptsGet),
+            "prompts/list" => Some(Operation::PromptsList),
             _ => None,
         }
     }

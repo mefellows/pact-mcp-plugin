@@ -1,0 +1,18 @@
+{
+  "description": "prompts/list: a relied-on prompt absent from the actual list is a mismatch keyed by name",
+  "operation": "prompts/list",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "prompts/list",
+      "request": {},
+      "response": { "prompts": [ { "name": "weather-report" } ] }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "prompts": [ { "name": "traffic-report" } ]
+  },
+  "expected": { "match": false, "mismatchPaths": [ "$.prompts[?(@.name=='weather-report')]" ] }
+}

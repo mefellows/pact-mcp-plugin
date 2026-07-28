@@ -10,12 +10,14 @@
 //! results are flushed to the `--results` file so `GetMockServerResults` /
 //! `ShutdownMockServer` can report them (§7.2).
 
-use crate::content::{match_tools_call_request, Rules};
+use crate::content::{match_structural_request, match_tools_call_request, Rules};
 use crate::mcp::model::{McpInteraction, Operation};
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ErrorData, Implementation, InitializeResult,
-    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, Tool,
+    CallToolRequestParams, CallToolResult, ErrorData, GetPromptRequestParams, GetPromptResult,
+    Implementation, InitializeResult, ListPromptsResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, ProtocolVersion, Prompt, ReadResourceRequestParams,
+    ReadResourceResult, Resource, ServerCapabilities, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use serde_json::Value;
@@ -155,9 +157,117 @@ impl MockServer {
                         }
                     }
                 }
+                _ => {}
             }
         }
         tools
+    }
+
+    /// Resources advertised via `resources/list`: any `resources/list`
+    /// interaction's resources, plus a synthesized entry for each distinct
+    /// `resources/read` uri the pact expects.
+    fn advertised_resources(&self) -> Vec<Resource> {
+        let mut resources: Vec<Resource> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for entry in self.interactions.iter() {
+            match entry.mcp.operation {
+                Operation::ResourcesList => {
+                    if let Some(list) = entry.mcp.response.get("resources").and_then(Value::as_array) {
+                        for r in list {
+                            if let Ok(res) = serde_json::from_value::<Resource>(r.clone()) {
+                                if !seen.contains(&res.uri.to_string()) {
+                                    seen.push(res.uri.to_string());
+                                    resources.push(res);
+                                }
+                            }
+                        }
+                    }
+                }
+                Operation::ResourcesRead => {
+                    if let Some(uri) = entry.mcp.request.get("uri").and_then(Value::as_str) {
+                        if !seen.contains(&uri.to_string()) {
+                            seen.push(uri.to_string());
+                            if let Ok(res) = serde_json::from_value::<Resource>(serde_json::json!({
+                                "uri": uri, "name": uri
+                            })) {
+                                resources.push(res);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        resources
+    }
+
+    /// Prompts advertised via `prompts/list`, mirroring `advertised_resources`.
+    fn advertised_prompts(&self) -> Vec<Prompt> {
+        let mut prompts: Vec<Prompt> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for entry in self.interactions.iter() {
+            match entry.mcp.operation {
+                Operation::PromptsList => {
+                    if let Some(list) = entry.mcp.response.get("prompts").and_then(Value::as_array) {
+                        for p in list {
+                            if let Ok(prompt) = serde_json::from_value::<Prompt>(p.clone()) {
+                                if !seen.contains(&prompt.name.to_string()) {
+                                    seen.push(prompt.name.to_string());
+                                    prompts.push(prompt);
+                                }
+                            }
+                        }
+                    }
+                }
+                Operation::PromptsGet => {
+                    if let Some(name) = entry.mcp.request.get("name").and_then(Value::as_str) {
+                        if !seen.contains(&name.to_string()) {
+                            seen.push(name.to_string());
+                            if let Ok(prompt) = serde_json::from_value::<Prompt>(serde_json::json!({ "name": name })) {
+                                prompts.push(prompt);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        prompts
+    }
+
+    /// Select the interaction of `operation` whose request structurally matches
+    /// `incoming` (honoring authored request matchers) and return its
+    /// configured response; record the outcome either way.
+    fn handle_structural(&self, operation: Operation, incoming: &Value) -> Result<Value, ErrorData> {
+        let method = operation.method();
+        let mut best_mismatch: Option<Vec<String>> = None;
+
+        for entry in self.interactions.iter() {
+            if entry.mcp.operation != operation {
+                continue;
+            }
+            let rules = Rules::new(entry.request_rules.as_ref());
+            let result = match_structural_request(&entry.mcp.request, incoming, &rules);
+            if result.is_match() {
+                self.record(MockResult { path: method.to_string(), error: None, mismatches: vec![] });
+                return Ok(entry.mcp.response.clone());
+            }
+            let paths: Vec<String> = result.mismatch_paths().into_iter().collect();
+            if best_mismatch.is_none() {
+                best_mismatch = Some(paths);
+            }
+        }
+
+        let mismatches = best_mismatch.unwrap_or_default();
+        self.record(MockResult {
+            path: method.to_string(),
+            error: Some(format!("unexpected {method}: no configured interaction matches {incoming}")),
+            mismatches: mismatches.clone(),
+        });
+        Err(ErrorData::invalid_params(
+            format!("no matching interaction for {method}"),
+            Some(serde_json::json!({ "mismatches": mismatches })),
+        ))
     }
 
     /// Select the `tools/call` interaction matching an incoming call and return
@@ -221,7 +331,13 @@ fn response_to_call_result(response: &Value) -> Result<CallToolResult, ErrorData
 
 impl ServerHandler for MockServer {
     fn get_info(&self) -> InitializeResult {
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
             .with_protocol_version(ProtocolVersion::V_2025_06_18)
             .with_server_info(Implementation::new(
                 "pact-mcp-mock",
@@ -248,6 +364,51 @@ impl ServerHandler for MockServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         self.handle_call(&request)
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        self.record(MockResult { path: "resources/list".to_string(), error: None, mismatches: vec![] });
+        Ok(ListResourcesResult { resources: self.advertised_resources(), ..Default::default() })
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        let incoming = serde_json::json!({ "uri": request.uri });
+        let response = self.handle_structural(Operation::ResourcesRead, &incoming)?;
+        serde_json::from_value(response).map_err(|e| {
+            ErrorData::internal_error(format!("configured response is not a valid resources/read result: {e}"), None)
+        })
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        self.record(MockResult { path: "prompts/list".to_string(), error: None, mismatches: vec![] });
+        Ok(ListPromptsResult { prompts: self.advertised_prompts(), ..Default::default() })
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        let mut incoming = serde_json::json!({ "name": request.name });
+        if let Some(args) = &request.arguments {
+            incoming["arguments"] = serde_json::to_value(args).unwrap_or(Value::Null);
+        }
+        let response = self.handle_structural(Operation::PromptsGet, &incoming)?;
+        serde_json::from_value(response).map_err(|e| {
+            ErrorData::internal_error(format!("configured response is not a valid prompts/get result: {e}"), None)
+        })
     }
 }
 

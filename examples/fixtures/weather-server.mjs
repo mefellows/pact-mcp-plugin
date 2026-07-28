@@ -61,5 +61,34 @@ server.registerTool(
   }
 );
 
+// A resource + a prompt so resources/read|list and prompts/get|list can be
+// verified against a real server (plan Phase 3.5).
+server.registerResource(
+  "melbourne-report",
+  "weather://melbourne/report",
+  { title: "Melbourne weather report", mimeType: "text/plain" },
+  async (uri) => ({
+    contents: [{ uri: uri.href, mimeType: "text/plain", text: "Sunny all week" }],
+  })
+);
+
+server.registerPrompt(
+  "weather-report",
+  {
+    title: "Weather report prompt",
+    description: "Compose a weather report for a city",
+    argsSchema: { city: z.string() },
+  },
+  async ({ city }) => ({
+    description: "Compose a weather report for a city",
+    messages: [
+      {
+        role: "user",
+        content: { type: "text", text: `Write a weather report for ${city}` },
+      },
+    ],
+  })
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

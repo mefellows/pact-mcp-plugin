@@ -72,8 +72,28 @@ Content block types: `text` (`{type,text}`), `image` (`{type,data,mimeType}`), `
 ```
 Consumer-driven: the consumer asserts only the tools it uses; the server may expose more (subset match — see matching-semantics §4).
 
-### 3.3 `resources/read`, `prompts/get`  *(Phase 3.5 — deferred)*
-Shapes reserved; add schema + fixtures when built. Do not implement in Phase 1.
+### 3.3 `resources/read`, `resources/list`  *(Phase 3.5 — implemented)*
+```jsonc
+// resources/read
+"request":  { "uri": "weather://melbourne/report" }
+"response": { "contents": [ { "uri": "weather://melbourne/report", "mimeType": "text/plain", "text": "..." } ] }
+// resources/list
+"request":  {}
+"response": { "resources": [ { "uri": "weather://melbourne/report" } ] }   // subset by uri
+```
+
+### 3.4 `prompts/get`, `prompts/list`  *(Phase 3.5 — implemented)*
+```jsonc
+// prompts/get
+"request":  { "name": "weather-report", "arguments": { "city": "Melbourne" } }
+"response": { "description": "...", "messages": [ { "role": "user", "content": { "type": "text", "text": "..." } } ] }
+// prompts/list
+"request":  {}
+"response": { "prompts": [ { "name": "weather-report" } ] }                // subset by name
+```
+
+A JSON-RPC error result (`"response": {"error": {...}}`) is supported for
+`resources/read` / `prompts/get` exactly as for `tools/call` (§3.1).
 
 ## 4. Invariants
 

@@ -74,7 +74,91 @@ pub fn compare_response(
     match operation {
         Operation::ToolsCall => compare_tools_call(expected, actual, rules),
         Operation::ToolsList => compare_tools_list(expected, actual, rules),
+        // resources/read + prompts/get: structural comparison rooted at $ —
+        // keys the consumer specified must match (exact scalars unless ruled),
+        // extra actual keys ignored. Cross-shape (success vs protocol error)
+        // handled like tools/call.
+        Operation::ResourcesRead | Operation::PromptsGet => compare_structural_result(expected, actual, rules),
+        // Subset lists, keyed like tools/list (matching-semantics §3).
+        Operation::ResourcesList => compare_subset_list(expected, actual, rules, "resources", "uri"),
+        Operation::PromptsList => compare_subset_list(expected, actual, rules, "prompts", "name"),
     }
+}
+
+/// Shared success-vs-protocol-error shape check; pushes a `$` mismatch and
+/// returns true when the shapes diverge (further comparison is pointless).
+fn cross_shape_mismatch(expected: &Value, actual: &Value, mismatches: &mut Vec<Mismatch>) -> bool {
+    let expected_is_error = expected.get("error").is_some();
+    let actual_is_error = actual.get("error").is_some();
+    if expected_is_error != actual_is_error {
+        mismatches.push(Mismatch {
+            path: "$".to_string(),
+            expected: expected.clone(),
+            actual: actual.clone(),
+            message: format!(
+                "expected a {} result but got a {} result",
+                if expected_is_error { "protocol error" } else { "success" },
+                if actual_is_error { "protocol error" } else { "success" },
+            ),
+        });
+        return true;
+    }
+    false
+}
+
+/// resources/read + prompts/get results: full structural comparison.
+fn compare_structural_result(expected: &Value, actual: &Value, rules: &Rules) -> MatchResult {
+    let mut mismatches = Vec::new();
+    if cross_shape_mismatch(expected, actual, &mut mismatches) {
+        return MatchResult { mismatches };
+    }
+    if expected.get("error").is_some() {
+        compare_error(expected, actual, rules, &mut mismatches);
+        return MatchResult { mismatches };
+    }
+    compare_structured("$", expected, actual, rules, &mut mismatches);
+    MatchResult { mismatches }
+}
+
+/// Subset list matching (resources/list, prompts/list): every expected item
+/// must be present in the actual list, keyed by `key_field`, order-independent;
+/// other specified keys on a matched item are compared structurally.
+fn compare_subset_list(
+    expected: &Value,
+    actual: &Value,
+    rules: &Rules,
+    list_field: &str,
+    key_field: &str,
+) -> MatchResult {
+    let mut mismatches = Vec::new();
+    let expected_items = expected.get(list_field).and_then(Value::as_array).cloned().unwrap_or_default();
+    let actual_items = actual.get(list_field).and_then(Value::as_array).cloned().unwrap_or_default();
+
+    for expected_item in &expected_items {
+        let key = expected_item.get(key_field).and_then(Value::as_str).unwrap_or("");
+        let found = actual_items
+            .iter()
+            .find(|i| i.get(key_field).and_then(Value::as_str) == Some(key));
+        let path = format!("$.{list_field}[?(@.{key_field}=='{key}')]");
+        match found {
+            None => mismatches.push(Mismatch {
+                path,
+                expected: expected_item.clone(),
+                actual: Value::Null,
+                message: format!("expected {list_field} item \"{key}\" not found in actual {list_field}[]"),
+            }),
+            Some(actual_item) => compare_structured(&path, expected_item, actual_item, rules, &mut mismatches),
+        }
+    }
+    MatchResult { mismatches }
+}
+
+/// Request matching for resources/read (uri) and prompts/get (name +
+/// arguments), used by the mock to select an interaction.
+pub fn match_structural_request(expected: &Value, actual: &Value, rules: &Rules) -> MatchResult {
+    let mut mismatches = Vec::new();
+    compare_structured("$", expected, actual, rules, &mut mismatches);
+    MatchResult { mismatches }
 }
 
 /// Request matching for the mock server (docs/spec/matching-semantics.md §4):

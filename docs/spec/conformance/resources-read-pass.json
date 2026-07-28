@@ -1,0 +1,18 @@
+{
+  "description": "resources/read: specified contents keys matched (exact scalars unless ruled), extra actual keys ignored",
+  "operation": "resources/read",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "resources/read",
+      "request": { "uri": "weather://melbourne/report" },
+      "response": { "contents": [ { "uri": "weather://melbourne/report", "text": "Sunny all week" } ] }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "contents": [ { "uri": "weather://melbourne/report", "mimeType": "text/plain", "text": "Sunny all week" } ]
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}

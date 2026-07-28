@@ -37,7 +37,18 @@ pub(crate) async fn perform_on_service(
     match operation {
         Operation::ToolsCall => call_tool(service, request).await,
         Operation::ToolsList => list_tools(service).await,
+        Operation::ResourcesRead => read_resource(service, request).await,
+        Operation::ResourcesList => list_resources(service).await,
+        Operation::PromptsGet => get_prompt(service, request).await,
+        Operation::PromptsList => list_prompts(service).await,
     }
+}
+
+/// Reshape an rmcp protocol-level error into the spec's `{error: {...}}` shape.
+fn protocol_error(err: rmcp::model::ErrorData) -> McpResponse {
+    serde_json::json!({
+        "error": { "code": err.code.0, "message": err.message.to_string(), "data": err.data }
+    })
 }
 
 async fn call_tool(
@@ -79,4 +90,48 @@ async fn list_tools(service: &RunningService<RoleClient, ()>) -> Result<McpRespo
         .map_err(|e| TransportError::Request(e.to_string()))?;
     let value = serde_json::to_value(&tools).map_err(|e| TransportError::Request(e.to_string()))?;
     Ok(serde_json::json!({ "tools": value }))
+}
+
+async fn read_resource(
+    service: &RunningService<RoleClient, ()>,
+    request: &Value,
+) -> Result<McpResponse, TransportError> {
+    let params: rmcp::model::ReadResourceRequestParams = serde_json::from_value(request.clone())
+        .map_err(|e| TransportError::Request(format!("mcp.request is not a valid resources/read request: {e}")))?;
+    match service.read_resource(params).await {
+        Ok(result) => serde_json::to_value(&result).map_err(|e| TransportError::Request(e.to_string())),
+        Err(rmcp::ServiceError::McpError(err)) => Ok(protocol_error(err)),
+        Err(e) => Err(TransportError::Request(e.to_string())),
+    }
+}
+
+async fn list_resources(service: &RunningService<RoleClient, ()>) -> Result<McpResponse, TransportError> {
+    let resources = service
+        .list_all_resources()
+        .await
+        .map_err(|e| TransportError::Request(e.to_string()))?;
+    let value = serde_json::to_value(&resources).map_err(|e| TransportError::Request(e.to_string()))?;
+    Ok(serde_json::json!({ "resources": value }))
+}
+
+async fn get_prompt(
+    service: &RunningService<RoleClient, ()>,
+    request: &Value,
+) -> Result<McpResponse, TransportError> {
+    let params: rmcp::model::GetPromptRequestParams = serde_json::from_value(request.clone())
+        .map_err(|e| TransportError::Request(format!("mcp.request is not a valid prompts/get request: {e}")))?;
+    match service.get_prompt(params).await {
+        Ok(result) => serde_json::to_value(&result).map_err(|e| TransportError::Request(e.to_string())),
+        Err(rmcp::ServiceError::McpError(err)) => Ok(protocol_error(err)),
+        Err(e) => Err(TransportError::Request(e.to_string())),
+    }
+}
+
+async fn list_prompts(service: &RunningService<RoleClient, ()>) -> Result<McpResponse, TransportError> {
+    let prompts = service
+        .list_all_prompts()
+        .await
+        .map_err(|e| TransportError::Request(e.to_string()))?;
+    let value = serde_json::to_value(&prompts).map_err(|e| TransportError::Request(e.to_string()))?;
+    Ok(serde_json::json!({ "prompts": value }))
 }

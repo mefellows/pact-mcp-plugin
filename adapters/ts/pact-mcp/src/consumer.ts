@@ -44,9 +44,20 @@ export interface McpTestScope {
   transport: Transport;
 }
 
+type McpOperation =
+  | "tools/call"
+  | "tools/list"
+  | "resources/read"
+  | "resources/list"
+  | "prompts/get"
+  | "prompts/list";
+
+/** Operations whose response the user supplies via willRespondWith(...). */
+const CALL_LIKE: McpOperation[] = ["tools/call", "resources/read", "prompts/get"];
+
 interface PendingInteraction {
   description: string;
-  operation: "tools/call" | "tools/list";
+  operation: McpOperation;
   request: unknown;
   response?: unknown;
   providerStates: { name: string; params?: Record<string, unknown> }[];
@@ -82,13 +93,65 @@ export class McpPact {
     return this;
   }
 
-  /** The expected `tools/call` result (may contain matchers from ./matchers). */
+  /** The expected result for the preceding call-like declaration (may contain matchers from ./matchers). */
   willRespondWith(response: unknown): this {
     const latest = this.interactions[this.interactions.length - 1];
-    if (!latest || latest.operation !== "tools/call" || latest.response !== undefined) {
-      throw new Error("willRespondWith(...) must follow whenClientCallsTool(...)");
+    if (!latest || !CALL_LIKE.includes(latest.operation) || latest.response !== undefined) {
+      throw new Error(
+        "willRespondWith(...) must follow whenClientCallsTool / whenClientReadsResource / whenClientGetsPrompt"
+      );
     }
     latest.response = response;
+    return this;
+  }
+
+  /** The consumer's real Client will read the resource at `uri`. */
+  whenClientReadsResource(uri: string): this {
+    this.interactions.push({
+      description: `a resources/read of ${uri}`,
+      operation: "resources/read",
+      request: { uri },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
+    return this;
+  }
+
+  /** The consumer's real Client will get prompt `name` with `args`. */
+  whenClientGetsPrompt(name: string, args?: Record<string, unknown>): this {
+    this.interactions.push({
+      description: `a prompts/get of ${name}`,
+      operation: "prompts/get",
+      request: args ? { name, arguments: args } : { name },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
+    return this;
+  }
+
+  /** The consumer relies on these resources appearing in `resources/list` (subset by uri). */
+  expectsResourcesList(resources: { uri: string; [k: string]: unknown }[]): this {
+    this.interactions.push({
+      description: "a resources/list",
+      operation: "resources/list",
+      request: {},
+      response: { resources },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
+    return this;
+  }
+
+  /** The consumer relies on these prompts appearing in `prompts/list` (subset by name). */
+  expectsPromptsList(prompts: { name: string; [k: string]: unknown }[]): this {
+    this.interactions.push({
+      description: "a prompts/list",
+      operation: "prompts/list",
+      request: {},
+      response: { prompts },
+      providerStates: this.pendingStates,
+    });
+    this.pendingStates = [];
     return this;
   }
 

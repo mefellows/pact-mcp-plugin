@@ -1,0 +1,21 @@
+{
+  "description": "resources/list: subset by uri, order-independent; server may expose more",
+  "operation": "resources/list",
+  "interaction": {
+    "mcp": {
+      "schemaVersion": "0",
+      "operation": "resources/list",
+      "request": {},
+      "response": { "resources": [ { "uri": "weather://melbourne/report" } ] }
+    },
+    "matchingRules": {},
+    "generators": {}
+  },
+  "actual": {
+    "resources": [
+      { "uri": "weather://sydney/report", "name": "sydney-report" },
+      { "uri": "weather://melbourne/report", "name": "melbourne-report", "mimeType": "text/plain" }
+    ]
+  },
+  "expected": { "match": true, "mismatchPaths": [] }
+}
