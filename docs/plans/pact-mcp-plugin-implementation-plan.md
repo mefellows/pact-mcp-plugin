@@ -246,32 +246,32 @@ await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/..j
 
 Write the failing test first; keep tasks bite-sized; commit per task; don't advance a phase until its example runs end-to-end. **Do not move to adapters until the engine passes the shared conformance fixtures.**
 
-### Phase 0 — Spec + scaffolding
-- [ ] 0.1 Write `docs/spec/` (interaction schema §4.1, matching semantics §4.2) + first conformance fixtures §4.3.
-- [ ] 0.2 Cargo workspace + crate; `tonic`/`tonic-build`; vendor `plugin.proto`; `build.rs`.
-- [ ] 0.3 Bootstrap: ephemeral port, startup JSON line, empty `PactPlugin`; test a driver-style `InitPlugin` call.
-- [ ] 0.4 `rmcp` smoke test: spawn a trivial stdio MCP server, do `initialize`. **VERIFY UPSTREAM.**
-- [ ] 0.5 ADRs: pinned versions, MCP→Pact model, architecture (this doc).
+### Phase 0 — Spec + scaffolding ✅
+- [x] 0.1 Write `docs/spec/` (interaction schema §4.1, matching semantics §4.2) + first conformance fixtures §4.3.
+- [x] 0.2 Cargo workspace + crate; `tonic`/`tonic-build`; vendor `plugin.proto`; `build.rs`.
+- [x] 0.3 Bootstrap: ephemeral port, startup JSON line, empty `PactPlugin`; test a driver-style `InitPlugin` call.
+- [x] 0.4 `rmcp` smoke test: spawn a trivial stdio MCP server, do `initialize`. **VERIFY UPSTREAM.** (ADR 0003)
+- [x] 0.5 ADRs: pinned versions, MCP→Pact model, architecture (this doc). (ADRs 0001–0005)
 
-### Phase 1 — Engine stdio vertical slice (tools/call)
-- [ ] 1.1 `mcp/model.rs` serde types (§4.1) + round-trip tests.
-- [ ] 1.2 `jsonrpc.rs` envelope synthesis + id correlation.
-- [ ] 1.3 `ConfigureInteraction` for `tools/call` → contents + matching rules + generators (assert persisted fragment).
-- [ ] 1.4 `CompareContents` MCP-aware matching (content blocks, `isError`, JSON-RPC errors) — **passes §4.3 conformance fixtures**.
-- [ ] 1.5 `transport/stdio.rs` against a fixture stdio server (`examples/fixtures/`).
-- [ ] 1.6 `handshake.rs` initialize + negotiation.
-- [ ] 1.7 `verify.rs` Prepare/Verify over stdio (pass + fail cases, real fixture server).
-- [ ] 1.8 `mock.rs` stdio mock mode (`pact-mcp-plugin mock ...`) — MCP SDK client spawns it and calls a tool.
-- [ ] 1.9 `examples/provider-stdio` runs green end-to-end. **Phase 1 demo.**
+### Phase 1 — Engine stdio vertical slice (tools/call) ✅
+- [x] 1.1 `mcp/model.rs` serde types (§4.1) + round-trip tests.
+- [x] 1.2 `jsonrpc.rs` envelope synthesis + id correlation.
+- [x] 1.3 `ConfigureInteraction` for `tools/call` → contents + matching rules + generators (assert persisted fragment). (ADR 0004: two-part sync message + inline DSL)
+- [x] 1.4 `CompareContents` MCP-aware matching (content blocks, `isError`, JSON-RPC errors) — **passes §4.3 conformance fixtures**.
+- [x] 1.5 `transport/stdio.rs` against a fixture stdio server (`examples/fixtures/`).
+- [x] 1.6 `handshake.rs` initialize + negotiation.
+- [x] 1.7 `verify.rs` Prepare/Verify over stdio (pass + fail cases, real fixture server).
+- [x] 1.8 `mock.rs` stdio mock mode (`pact-mcp-plugin mock ...`) — MCP SDK client spawns it and calls a tool.
+- [x] 1.9 `examples/provider-stdio` runs green end-to-end. **Phase 1 demo.**
 
-### Phase 2 — Engine Streamable HTTP + auth
-- [ ] 2.1 `transport/http.rs` (JSON + SSE, `Mcp-Session-Id`) vs fixture HTTP server.
-- [ ] 2.2 `auth.rs` `AuthProvider` (bearer/apiKey/headers, `${ENV}`) injected everywhere incl. initialize; test "secrets never persisted".
-- [ ] 2.3 `mcp-http` transport + HTTP mock via `StartMockServer` (URL). `examples/http-consumer` green.
-- [ ] 2.4 Docs: auth + HTTP usage.
+### Phase 2 — Engine Streamable HTTP + auth ✅
+- [x] 2.1 `transport/http.rs` (JSON + SSE, `Mcp-Session-Id`) vs fixture HTTP server. (ADR 0007: rmcp Streamable HTTP client)
+- [x] 2.2 `auth.rs` `AuthProvider` (bearer/apiKey/headers, `${ENV}`) injected everywhere incl. initialize; test "secrets never persisted".
+- [x] 2.3 `mcp-http` transport + HTTP mock via `StartMockServer` (URL). `examples/consumer-http-mock` green.
+- [x] 2.4 Docs: auth + HTTP usage. (`docs/usage.md`)
 
-### Phase 3 — Native in-memory adapter (TypeScript only)
-- [ ] 3.1 **TS adapter** (`adapters/ts/pact-mcp`): consumer + provider DX (§10) via `InMemoryTransport.createLinkedPair()`, delegating matching to the engine; runs §4.3 conformance fixtures; `examples/ts-inmemory` green. **VERIFY** pact-js plugin API.
+### Phase 3 — Native in-memory adapter (TypeScript only) ✅ (via engine stdio/HTTP mock, not in-memory — ADR 0006)
+- [x] 3.1 **TS adapter** (`adapters/ts/pact-mcp`): consumer + provider DX (§10), delegating matching to the engine; runs §4.3 conformance fixtures; `examples/consumer-stdio-mock` + `examples/ts-roundtrip` green. **Note:** pact-js exposes no live sync-message mock transport, so the consumer flow uses the engine's stdio/HTTP mock instead of `InMemoryTransport.createLinkedPair()` (see ADR 0006); the DSL currently authors `tools/call` only. Remaining surface gaps tracked in `gap-analysis-next-phase.md` (G4).
 
 > Python/Go adapters and the Java loopback example are **deferred** (§15). The shared spec + engine make them additive later, not a refactor.
 
