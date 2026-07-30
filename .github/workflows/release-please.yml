@@ -68,6 +68,11 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    # `npm publish` doesn't honor --prefix (it operates on the CWD), so run every
+    # npm step from the package dir.
+    defaults:
+      run:
+        working-directory: adapters/ts/pact-mcp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,8 +86,10 @@ jobs:
       # The release commit already carries the bumped version (release-please
       # updated package.json in the merged PR), so no version-pin step is needed.
       - name: Install deps
-        run: npm ci --prefix adapters/ts/pact-mcp
+        run: npm ci
+      # publish runs prepublishOnly (build), but build explicitly so a compile
+      # failure surfaces before the publish step.
       - name: Build
-        run: npm run build --prefix adapters/ts/pact-mcp
+        run: npm run build
       - name: Publish
-        run: npm publish --prefix adapters/ts/pact-mcp --access public
+        run: npm publish --access public
