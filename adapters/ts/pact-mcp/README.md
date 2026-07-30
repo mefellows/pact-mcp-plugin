@@ -1,14 +1,35 @@
-# @pact-mcp/adapter
+# @pactflow/pact-mcp-plugin
 
 Ergonomic TypeScript DX for **Pact MCP** contract testing. You connect your
 **real** `@modelcontextprotocol/sdk` `Client` / `Server` — no stubbing, no
 service decomposition. **All matching runs in the Rust engine**; this package is
 a thin orchestration + DX layer.
 
+## Install
+
+```sh
+npm install @pactflow/pact-mcp-plugin
+```
+
+On install, a `postinstall` step downloads the matching **engine binary** (the
+Pact `mcp` plugin) for your platform from GitHub releases and installs it to
+`~/.pact/plugins/mcp-<version>/`, where both the Pact plugin driver and this
+package look for it. The install never hard-fails: if the download can't run
+(offline, air-gapped, unsupported platform) it prints guidance and you can
+provision later with:
+
+```sh
+npx pact-mcp-install          # re-run the download
+# or, from source:  ./scripts/install-local.sh   (in the plugin repo)
+```
+
+Opt out of the automatic download with `PACT_MCP_SKIP_INSTALL=1` (e.g. in CI
+where you provision the engine yourself).
+
 ## Consumer
 
 ```ts
-import { McpPact, like } from "@pact-mcp/adapter";
+import { McpPact, like } from "@pactflow/pact-mcp-plugin";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 await new McpPact({ consumer: "weather-agent", provider: "weather-mcp" })
@@ -31,7 +52,7 @@ strings, a different format. Matching itself is 100% in the Rust engine.)
 ## Provider
 
 ```ts
-import { McpProviderVerifier } from "@pact-mcp/adapter";
+import { McpProviderVerifier } from "@pactflow/pact-mcp-plugin";
 
 // stdio — the engine spawns your real server
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
@@ -82,9 +103,9 @@ matching** anywhere.
 
 ## Engine binary resolution
 
-`resolveEngine()` looks for the `pact-mcp-plugin` binary in order:
+`resolveEngine()` looks for the `pact-mcp-plugin` binary (`.exe` on Windows) in order:
 1. `PACT_MCP_ENGINE` env var,
-2. `~/.pact/plugins/mcp-<version>/pact-mcp-plugin`,
+2. `~/.pact/plugins/mcp-<version>/` (provisioned by the postinstall / `pact-mcp-install`, or a release install),
 3. a local `rust/target/{release,debug}` dev build.
 
 ## Test

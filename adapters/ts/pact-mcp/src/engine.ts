@@ -6,11 +6,15 @@ import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+/** Binary name for the current platform (`.exe` on Windows). */
+const BIN = process.platform === "win32" ? "pact-mcp-plugin.exe" : "pact-mcp-plugin";
+
 /**
  * Resolve the engine binary, in priority order:
  *  1. PACT_MCP_ENGINE env var (explicit override).
- *  2. An installed plugin at ~/.pact/plugins/mcp-<version>/pact-mcp-plugin.
- *  3. A local dev build under rust/target/{debug,release} (relative to this repo).
+ *  2. An installed plugin at ~/.pact/plugins/mcp-<version>/ (provisioned by the
+ *     package's postinstall / `pact-mcp-install`, or a release install).
+ *  3. A local dev build under rust/target/{release,debug} (relative to this repo).
  */
 export function resolveEngine(): string {
   const override = process.env.PACT_MCP_ENGINE;
@@ -22,7 +26,7 @@ export function resolveEngine(): string {
       .filter((d) => d.startsWith("mcp-"))
       .sort();
     for (const d of mcpDirs.reverse()) {
-      const p = join(pluginsDir, d, "pact-mcp-plugin");
+      const p = join(pluginsDir, d, BIN);
       if (existsSync(p)) return p;
     }
   }
@@ -30,13 +34,13 @@ export function resolveEngine(): string {
   // repo-relative dev build (adapters/ts/pact-mcp/src -> repo root is ../../../..)
   const repoRoot = join(__dirname, "..", "..", "..", "..");
   for (const profile of ["release", "debug"]) {
-    const p = join(repoRoot, "rust", "target", profile, "pact-mcp-plugin");
+    const p = join(repoRoot, "rust", "target", profile, BIN);
     if (existsSync(p)) return p;
   }
 
   throw new Error(
-    "Could not locate the pact-mcp-plugin engine binary. Set PACT_MCP_ENGINE, " +
-      "install the plugin at ~/.pact/plugins/mcp-<version>/, or build rust/ (cargo build)."
+    "Could not locate the pact-mcp-plugin engine binary. Install it with " +
+      "`npx pact-mcp-install`, set PACT_MCP_ENGINE, or build rust/ (cargo build)."
   );
 }
 

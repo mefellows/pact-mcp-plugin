@@ -1,15 +1,40 @@
 {
-  "name": "@pact-mcp/adapter",
+  "name": "@pactflow/pact-mcp-plugin",
   "version": "0.1.0",
-  "description": "Ergonomic TypeScript consumer/provider DX for Pact MCP contract testing. Matching runs entirely in the Rust engine.",
+  "description": "Pact contract testing for Model Context Protocol (MCP) servers and clients. Ships an ergonomic TypeScript consumer/provider DX and provisions the Rust matching engine (the Pact `mcp` plugin) on install.",
   "license": "MIT",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mefellows/pact-mcp-plugin.git",
+    "directory": "adapters/ts/pact-mcp"
+  },
+  "homepage": "https://github.com/mefellows/pact-mcp-plugin#readme",
+  "bugs": "https://github.com/mefellows/pact-mcp-plugin/issues",
+  "keywords": [
+    "pact",
+    "mcp",
+    "model-context-protocol",
+    "contract-testing",
+    "pactflow",
+    "bdct"
+  ],
+  "bin": {
+    "pact-mcp-install": "scripts/install-engine.cjs"
+  },
+  "files": [
+    "dist",
+    "scripts/install-engine.cjs"
+  ],
+  "engineConfig": {
+    "repo": "mefellows/pact-mcp-plugin"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "postinstall": "node scripts/install-engine.cjs || true",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

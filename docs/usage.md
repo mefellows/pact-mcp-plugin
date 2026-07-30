@@ -61,7 +61,7 @@ For `mcp-http`, auth comes from `PACT_MCP_AUTH` (a JSON auth config as below,
 ### stdio (spawn the real server)
 
 ```ts
-import { McpProviderVerifier } from "@pact-mcp/adapter";
+import { McpProviderVerifier } from "@pactflow/pact-mcp-plugin";
 
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/…json"] })
   .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
@@ -119,7 +119,7 @@ Apply them at verification time by whichever route fits your runner:
 ## Consumer mock over HTTP
 
 ```ts
-import { McpPact, like } from "@pact-mcp/adapter";
+import { McpPact, like } from "@pactflow/pact-mcp-plugin";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 await new McpPact({ consumer: "weather-agent", provider: "weather-mcp", mockTransport: "http" })
