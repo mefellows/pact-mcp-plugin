@@ -1,31 +1,69 @@
 name: Release
 
+# Publish a GitHub Release (with notes) to trigger this workflow. It builds the
+# engine for every platform, attaches the artifacts to the release, then
+# publishes the npm package pinned to the same version.
 on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 env:
   PACT_DO_NOT_TRACK: "true"
+  PACT_MCP_SKIP_INSTALL: "true"
 
 jobs:
   build-release:
-    name: Build (${{ matrix.os }})
+    name: Build engine (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-24.04-arm + macos-13 give linux-aarch64 and osx-x86_64
-        # without cross-compilation.
+        # ubuntu-24.04-arm + macos-13 give linux-aarch64 and osx-x86_64 without
+        # cross-compilation; the rest cover linux-x86_64, osx-aarch64, windows.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: bash scripts/release.sh ${{ runner.os }} ${{ github.ref }}
+      - name: Build artifacts
+        run: bash scripts/release.sh ${{ runner.os }} ${{ github.event.release.tag_name }}
       - name: Upload release assets
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: rust/target/artifacts/*
           file_glob: true
-          tag: ${{ github.ref }}
+          tag: ${{ github.event.release.tag_name }}
           overwrite: true
+
+  publish-npm:
+    name: Publish @pactflow/pact-mcp-plugin
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Pin package version to the release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          npm --prefix adapters/ts/pact-mcp version "${TAG#v}" \
+            --no-git-tag-version --allow-same-version
+      - name: Install deps
+        run: npm ci --prefix adapters/ts/pact-mcp
+      - name: Build
+        run: npm run build --prefix adapters/ts/pact-mcp
+      - name: Publish (prerelease -> "next", else "latest")
+        run: |
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            npm publish --prefix adapters/ts/pact-mcp --access public --tag next
+          else
+            npm publish --prefix adapters/ts/pact-mcp --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

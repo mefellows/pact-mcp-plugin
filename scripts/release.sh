@@ -21,7 +21,11 @@ manifest="${repo_root}/pact-plugin.json"
 
 cd "${repo_root}/rust"
 mkdir -p "${artifacts}"
-cp "${manifest}" "${artifacts}/"
+# Ship a manifest whose `version` matches the release tag, so it installs to
+# ~/.pact/plugins/mcp-<version>/ and the Pact driver matches the pact's
+# `plugins: [{name: "mcp", version}]` entry.
+sed -e "s/\"version\": *\"[^\"]*\"/\"version\": \"${version}\"/" "${manifest}" \
+  > "${artifacts}/pact-plugin.json"
 
 package() { # <binary path> <asset name>
   gzip -c "$1" > "${artifacts}/$2.gz"
