@@ -42,12 +42,22 @@ jobs:
     name: Publish @pactflow/pact-mcp-plugin
     needs: build-release
     runs-on: ubuntu-latest
+    # Trusted publishing: npm authenticates via OIDC, no NPM_TOKEN secret.
+    # `id-token: write` lets the runner mint the OIDC token npm exchanges; the
+    # trusted publisher (repo + this workflow) is configured on npmjs.com.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing + automatic provenance need npm >= 11.5.1; Node 22
+      # ships npm 10.x, so upgrade the CLI first.
+      - name: Upgrade npm (OIDC support)
+        run: npm install -g npm@latest
       - name: Pin package version to the release tag
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -65,5 +75,3 @@ jobs:
           else
             npm publish --prefix adapters/ts/pact-mcp --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

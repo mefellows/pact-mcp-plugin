@@ -128,8 +128,11 @@ To cut a release:
    - **build-release** builds the engine for linux/osx (x86_64 + aarch64) and windows, and attaches per-platform `*.gz` + `.sha256`, a version-stamped `pact-plugin.json`, and `install-plugin.sh` to the release (naming follows the pact-plugin ecosystem convention).
    - **publish-npm** pins `@pactflow/pact-mcp-plugin` to the tag and publishes to npm; its `postinstall` then provisions the matching engine binary for end users.
 
-Requires an `NPM_TOKEN` repo secret with publish access to the `@pactflow` org.
-Mark a GitHub Release as *prerelease* to publish under the npm `next` dist-tag.
+Publishing uses npm **trusted publishing** (OIDC) — no `NPM_TOKEN` secret. Configure
+a trusted publisher for the package on npmjs.com pointing at this repo and the
+`release.yml` workflow; the job requests an `id-token` and publishes with
+automatic provenance. Mark a GitHub Release as *prerelease* to publish under the
+npm `next` dist-tag.
 
 ## Roadmap
 
