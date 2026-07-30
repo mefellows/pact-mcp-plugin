@@ -29,20 +29,25 @@ Auth secrets use `${ENV}` interpolation and are **never written to the pact**.
 
 ## Quick start (TypeScript)
 
-Install the adapter and the engine plugin:
+Install the package — its `postinstall` also downloads the engine binary (the
+Pact `mcp` plugin) for your platform into `~/.pact/plugins/`:
 
 ```sh
-npm install @pact-mcp/adapter
-# engine: from a release…
+npm install @pactflow/pact-mcp-plugin
+```
+
+Not using npm (e.g. verifying from the JVM/.NET/Go verifier)? Install the engine
+binary directly:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/mefellows/pact-mcp-plugin/main/scripts/install-plugin.sh | bash
-# …or from source:
-./scripts/install-local.sh
+# …or from source:  ./scripts/install-local.sh
 ```
 
 **Consumer** — drive your real MCP client against a Pact-synthesized mock:
 
 ```ts
-import { McpPact, like } from "@pact-mcp/adapter";
+import { McpPact, like } from "@pactflow/pact-mcp-plugin";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 await new McpPact({ consumer: "weather-agent", provider: "weather-mcp" })
@@ -60,7 +65,7 @@ await new McpPact({ consumer: "weather-agent", provider: "weather-mcp" })
 **Provider** — verify that pact against your real server, over stdio or HTTP:
 
 ```ts
-import { McpProviderVerifier } from "@pact-mcp/adapter";
+import { McpProviderVerifier } from "@pactflow/pact-mcp-plugin";
 
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
   .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
@@ -94,7 +99,7 @@ docs/
 rust/
   pact-mcp-plugin/ # the engine (single binary Pact plugin)
 adapters/
-  ts/pact-mcp/    # TypeScript adapter (@pact-mcp/adapter)
+  ts/pact-mcp/    # TypeScript adapter (@pactflow/pact-mcp-plugin)
 examples/         # runnable consumer/provider examples + fixture MCP servers
 pact-plugin.json  # Pact plugin manifest (name: mcp)
 ```
@@ -108,6 +113,23 @@ cd rust && cargo test -p pact-mcp-plugin
 # TypeScript adapter (drives the engine)
 cd adapters/ts/pact-mcp && npm install && npm test
 ```
+
+## Releasing
+
+CI (`.github/workflows/ci.yml`) runs on every push/PR: the Rust engine (Linux +
+macOS build/test/clippy, Windows build smoke, conformance as a named gate) and
+the full TypeScript E2E suite (stock pact-js `Verifier`, provider states,
+resources/prompts, multi-interaction) plus a publishable `npm pack` check.
+
+To cut a release:
+
+1. Bump the version in `pact-plugin.json` and `adapters/ts/pact-mcp/package.json`, commit, and tag `vX.Y.Z`.
+2. Publish a GitHub Release for the tag (with notes). This triggers `release.yml`:
+   - **build-release** builds the engine for linux/osx (x86_64 + aarch64) and windows, and attaches per-platform `*.gz` + `.sha256`, a version-stamped `pact-plugin.json`, and `install-plugin.sh` to the release (naming follows the pact-plugin ecosystem convention).
+   - **publish-npm** pins `@pactflow/pact-mcp-plugin` to the tag and publishes to npm; its `postinstall` then provisions the matching engine binary for end users.
+
+Requires an `NPM_TOKEN` repo secret with publish access to the `@pactflow` org.
+Mark a GitHub Release as *prerelease* to publish under the npm `next` dist-tag.
 
 ## Roadmap
 
