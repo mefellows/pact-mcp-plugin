@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "include-component-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        { "type": "json", "path": "pact-plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "adapters/ts/pact-mcp/package.json", "jsonpath": "$.version" },
+        { "type": "generic", "path": "rust/Cargo.toml" }
+      ]
+    }
+  }
+}

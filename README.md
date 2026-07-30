@@ -121,18 +121,26 @@ macOS build/test/clippy, Windows build smoke, conformance as a named gate) and
 the full TypeScript E2E suite (stock pact-js `Verifier`, provider states,
 resources/prompts, multi-interaction) plus a publishable `npm pack` check.
 
-To cut a release:
+Releases are **conventional-commit driven** via
+[release-please](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`), so use Conventional Commits on `main`
+(`feat:` → minor, `fix:` → patch, `feat!:`/`BREAKING CHANGE:` → major).
 
-1. Bump the version in `pact-plugin.json` and `adapters/ts/pact-mcp/package.json`, commit, and tag `vX.Y.Z`.
-2. Publish a GitHub Release for the tag (with notes). This triggers `release.yml`:
-   - **build-release** builds the engine for linux/osx (x86_64 + aarch64) and windows, and attaches per-platform `*.gz` + `.sha256`, a version-stamped `pact-plugin.json`, and `install-plugin.sh` to the release (naming follows the pact-plugin ecosystem convention).
-   - **publish-npm** pins `@pactflow/pact-mcp-plugin` to the tag and publishes to npm; its `postinstall` then provisions the matching engine binary for end users.
+1. On each push to `main`, release-please maintains a **release PR** that bumps
+   the version — `pact-plugin.json`, `adapters/ts/pact-mcp/package.json`, and
+   `rust/Cargo.toml` are kept in lockstep — and updates `CHANGELOG.md`.
+2. **Merge the release PR** to cut the release. In the same workflow run:
+   - **build-release** builds the engine for linux/osx (x86_64 + aarch64) and windows and attaches per-platform `*.gz` + `.sha256`, a version-stamped `pact-plugin.json`, and `install-plugin.sh` to the GitHub Release (naming follows the pact-plugin ecosystem convention).
+   - **publish-npm** publishes `@pactflow/pact-mcp-plugin`; end users' `postinstall` then provisions the matching engine binary.
 
-Publishing uses npm **trusted publishing** (OIDC) — no `NPM_TOKEN` secret. Configure
-a trusted publisher for the package on npmjs.com pointing at this repo and the
-`release.yml` workflow; the job requests an `id-token` and publishes with
-automatic provenance. Mark a GitHub Release as *prerelease* to publish under the
-npm `next` dist-tag.
+Publishing uses npm **trusted publishing** (OIDC) — no `NPM_TOKEN` secret.
+Configure a trusted publisher for the package on npmjs.com pointing at this repo
+and the **`release-please.yml`** workflow (that's where `npm publish` runs); the
+job requests an `id-token` and publishes with automatic provenance.
+
+> **First release:** the package name must exist on npm before trusted
+> publishing works. Publish a one-time placeholder (`@pactflow/pact-mcp-plugin@0.0.1`),
+> configure the trusted publisher, then let release-please cut `0.1.0`.
 
 ## Roadmap
 
