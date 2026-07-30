@@ -35,8 +35,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install fixture MCP servers
-        run: npm ci --prefix examples/fixtures
+      # Several Rust integration tests spawn REAL @modelcontextprotocol/sdk Node
+      # clients/servers from these example dirs, each needing its own installed
+      # node_modules (consumer_stdio_mock -> consumer-stdio-mock,
+      # grpc_bootstrap http mock -> consumer-http-mock, verify/http -> fixtures).
+      - name: Install example MCP client/server node deps
+        run: |
+          for d in examples/fixtures examples/consumer-stdio-mock examples/consumer-http-mock; do
+            npm ci --prefix "$d"
+          done
       # The conformance suite is the anti-divergence gate (docs/spec/conformance):
       # run it as its own named step so a failure is unmistakable.
       - name: Conformance gate
@@ -82,5 +89,9 @@ jobs:
       # conformance fixtures — all against real MCP clients/servers.
       - name: Test (E2E incl. standard pact-js Verifier)
         run: npm test --prefix adapters/ts/pact-mcp
+      # `npm pack/publish` don't honor --prefix (they operate on the CWD), so run
+      # from the package dir. `publish --dry-run` runs prepublishOnly (builds
+      # dist) and validates the tarball without auth or actually publishing.
       - name: Package (publishable tarball check)
-        run: npm pack --dry-run --prefix adapters/ts/pact-mcp
+        working-directory: adapters/ts/pact-mcp
+        run: npm publish --dry-run
