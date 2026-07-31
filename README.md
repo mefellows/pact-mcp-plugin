@@ -17,10 +17,10 @@ Test that an AI agent (MCP **client**) and the MCP **server** it depends on agre
 | | stdio | Streamable HTTP |
 |---|---|---|
 | Provider verification | ✅ | ✅ (+ bearer / API key / custom headers) |
-| Standard pact-js `Verifier` support (ADR 0008) | ✅ | ✅ |
-| Provider states (`given(...)` + `stateHandlers`, ADR 0009) | ✅ | ✅ |
+| Standard pact-js `Verifier` support | ✅ | ✅ |
+| Provider states (`given(...)` + `stateHandlers`) | ✅ | ✅ |
 | Consumer mock | ✅ | ✅ (loopback) |
-| `tools/call|list`, `resources/read|list`, `prompts/get|list` | ✅ | ✅ |
+| `tools/call` / `tools/list`, `resources/read` / `resources/list`, `prompts/get` / `prompts/list` | ✅ | ✅ |
 | Auto `initialize` handshake + capability negotiation | ✅ | ✅ |
 | Matching in the shared Rust engine | ✅ | ✅ |
 | TypeScript adapter DX | ✅ | ✅ |
