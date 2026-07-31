@@ -39,7 +39,18 @@ impl tonic::service::Interceptor for AuthInterceptor {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+    // Quiet by default (WARN, so INFO from the engine and rmcp is suppressed).
+    // Override with PACT_MCP_LOG or RUST_LOG using full env-filter syntax, e.g.
+    // `info` or `pact_mcp_plugin=debug,rmcp=warn`.
+    let log_filter = std::env::var("PACT_MCP_LOG")
+        .ok()
+        .and_then(|v| tracing_subscriber::EnvFilter::try_new(v).ok())
+        .or_else(|| tracing_subscriber::EnvFilter::try_from_default_env().ok())
+        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("warn"));
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(log_filter)
+        .init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
