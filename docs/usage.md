@@ -56,44 +56,51 @@ For `mcp-http`, auth comes from `PACT_MCP_AUTH` (a JSON auth config as below,
 `${ENV}` interpolation applies) and a non-root endpoint path from
 `PACT_MCP_SERVER_PATH`.
 
-## Provider verification — adapter / engine CLI
+## Provider verification — `McpProviderVerifier` (thin wrapper)
 
-### stdio (spawn the real server)
+`McpProviderVerifier` is a thin convenience wrapper over the same
+`new Verifier(...)` shown above: it assembles the MCP transport config
+(`transports` / `PACT_MCP_SERVER_COMMAND` / `PACT_MCP_AUTH` / …) and forwards
+every other option to pact-js. So it inherits broker fetch, publishing,
+`can-i-deploy`, and Pact's real reporting.
 
 ```ts
 import { McpProviderVerifier } from "@pactflow/pact-mcp-plugin";
 
+// stdio — the plugin spawns the real server per interaction
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/…json"] })
   .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
   .verify();
-```
 
-### HTTP (verify a running / deployed server)
-
-```ts
+// http — verify a running / deployed server, with auth
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/…json"] })
-  .withServerTransport({
-    type: "http",
-    url: "https://mcp.example.com/mcp",
-    auth: { type: "bearer", token: "${MCP_TOKEN}" }, // apiKey / headers also supported
-  })
+  .withServerTransport({ type: "http", url: "https://mcp.example.com/mcp", auth: { type: "bearer", token: "${MCP_TOKEN}" } })
+  .verify();
+
+// from a broker, publishing results (the real-world path)
+await new McpProviderVerifier({ provider: "weather-mcp", providerVersion: gitSha, publishVerificationResult: true })
+  .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
+  .fromPactBroker({ url: brokerUrl, token, consumerVersionSelectors: [{ mainBranch: true }] })
   .verify();
 ```
 
-Engine CLI equivalents:
-
-```sh
-# stdio
-pact-mcp-plugin verify --pact pact.json --command node --arg dist/server.js
-# http + auth
-pact-mcp-plugin verify --pact pact.json --url https://host/mcp \
-  --auth '{"type":"bearer","token":"${MCP_TOKEN}"}'
-```
+`.verify()` resolves with the verifier output and rejects (with pact-js's own
+reporting) on failure. Use `.withVerifierOptions({ … })` to pass any raw pact-js
+option through.
 
 The Streamable HTTP client handles `Mcp-Session-Id`, `Accept: application/json,
 text/event-stream`, and both JSON-body and SSE response modes automatically
 (rmcp — see ADR 0007). A 401 from missing/invalid auth surfaces as a clear
 verification failure.
+
+The low-level engine also exposes a `verify` CLI (used by its gRPC path, not by
+the adapter): `pact-mcp-plugin verify --pact pact.json --command node --arg dist/server.js`.
+
+## Quieting engine logs
+
+The engine is quiet by default (WARN). Raise verbosity with `PACT_MCP_LOG` or
+`RUST_LOG` (full env-filter syntax), e.g. `PACT_MCP_LOG=info` or
+`PACT_MCP_LOG=pact_mcp_plugin=debug,rmcp=warn`.
 
 ## Provider states
 

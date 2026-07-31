@@ -6,8 +6,12 @@ export type {
   StdioServerTransport,
   HttpServerTransport,
   ServerTransport,
+  PactBrokerSource,
+  ConsumerVersionSelector,
+  StateHandler,
+  HttpAuth,
 } from "./provider";
 export { like, regex, number, integer, boolean, notEmpty, buildDsl, isMcpMatcher } from "./matchers";
 export type { McpMatcher } from "./matchers";
-export { resolveEngine, runCompare, runVerify, runVerifyHttp } from "./engine";
-export type { CompareResult, VerifyResult, VerifyInteractionResult, HttpAuth } from "./engine";
+export { resolveEngine, runCompare } from "./engine";
+export type { CompareResult } from "./engine";

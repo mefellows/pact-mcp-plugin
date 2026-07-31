@@ -58,54 +58,10 @@ export function runCompare(fixturePath: string, engine = resolveEngine()): Compa
   return parseLastJson(out.stdout) as CompareResult;
 }
 
-export interface VerifyInteractionResult {
-  description: string;
-  success: boolean;
-  mismatches?: { path: string; message: string }[];
-  error?: string;
-}
-export interface VerifyResult {
-  success: boolean;
-  interactions: VerifyInteractionResult[];
-}
-
-/** Run `verify --pact <file> --command <cmd> [--arg ...]` (stdio provider). */
-export function runVerify(
-  pactPath: string,
-  command: string,
-  args: string[],
-  engine = resolveEngine()
-): VerifyResult {
-  const cliArgs = ["verify", "--pact", pactPath, "--command", command];
-  for (const a of args) cliArgs.push("--arg", a);
-  const out = spawnSync(engine, cliArgs, { encoding: "utf8" });
-  if (out.status !== 0) {
-    throw new Error(`engine verify failed (${out.status}): ${out.stderr}`);
-  }
-  return parseLastJson(out.stdout) as VerifyResult;
-}
-
-/** Auth config for an HTTP target (values may use `${ENV}` interpolation). */
-export type HttpAuth =
-  | { type: "bearer"; token: string }
-  | { type: "apiKey"; header: string; value: string }
-  | { type: "headers"; headers: Record<string, string> };
-
-/** Run `verify --pact <file> --url <url> [--auth <json>]` (HTTP provider). */
-export function runVerifyHttp(
-  pactPath: string,
-  url: string,
-  auth?: HttpAuth,
-  engine = resolveEngine()
-): VerifyResult {
-  const cliArgs = ["verify", "--pact", pactPath, "--url", url];
-  if (auth) cliArgs.push("--auth", JSON.stringify(auth));
-  const out = spawnSync(engine, cliArgs, { encoding: "utf8" });
-  if (out.status !== 0) {
-    throw new Error(`engine verify (http) failed (${out.status}): ${out.stderr}`);
-  }
-  return parseLastJson(out.stdout) as VerifyResult;
-}
+// Note: provider verification no longer shells out to the engine `verify` CLI —
+// it goes through the standard pact-js `Verifier` + the installed plugin (see
+// src/provider.ts). The engine's own `verify` subcommand still exists for the
+// plugin's gRPC path and direct CLI use.
 
 /** The engine prints JSON on stdout and logs on stderr; take the last JSON line. */
 export function parseLastJson(stdout: string): unknown {
