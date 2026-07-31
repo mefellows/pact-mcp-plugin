@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/mefellows/pact-mcp-plugin/compare/v0.1.0...v0.2.0) (2026-07-31)
+
+
+### Features
+
+* **engine:** quiet logging by default; honor PACT_MCP_LOG / RUST_LOG ([df3556a](https://github.com/mefellows/pact-mcp-plugin/commit/df3556a0a9c74686c21e3c4d816a429a9b1a5c9f))
+
+
+### Bug Fixes
+
+* **release:** build both macOS arches on the arm runner; add dispatch recovery ([d910ee3](https://github.com/mefellows/pact-mcp-plugin/commit/d910ee3c79c3fa9c8c9e9d0084ecbb9f7c5fc88a))
+
 ## 0.1.0 (2026-07-30)
 
 
