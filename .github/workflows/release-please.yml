@@ -10,6 +10,13 @@ name: release-please
 on:
   push:
     branches: [main]
+  # Recovery lever: build + publish for an already-created tag (e.g. if a runner
+  # stalled a previous release). Skips the release-please step.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build artifacts for + publish to npm (e.g. v0.1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -21,6 +28,7 @@ env:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
@@ -33,34 +41,41 @@ jobs:
   build-release:
     name: Build engine (${{ matrix.os }})
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # Runs on a real release (release_created) or a manual recovery dispatch.
+    # always() so a skipped release-please job (on dispatch) doesn't skip this.
+    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-24.04-arm + macos-13 give linux-aarch64 and osx-x86_64 without
-        # cross-compilation; the rest cover linux-x86_64, osx-aarch64, windows.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+        # macos-latest builds BOTH osx arches (x86_64 via cross-compile), since
+        # macos-13 Intel runners are unavailable on this account. ubuntu-24.04-arm
+        # gives linux-aarch64 natively.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Build artifacts
-        run: bash scripts/release.sh ${{ runner.os }} ${{ needs.release-please.outputs.tag_name }}
+        run: bash scripts/release.sh ${{ runner.os }} "$RELEASE_TAG"
       - name: Upload release assets
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: rust/target/artifacts/*
           file_glob: true
-          tag: ${{ needs.release-please.outputs.tag_name }}
+          tag: ${{ env.RELEASE_TAG }}
           overwrite: true
 
   publish-npm:
     name: Publish @pactflow/pact-mcp-plugin
     needs: [release-please, build-release]
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # Publish once the artifacts are built, on a real release or a recovery
+    # dispatch. always() so the skipped release-please job (dispatch) is ignored.
+    if: ${{ always() && needs.build-release.result == 'success' && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     # Trusted publishing: npm authenticates via OIDC, no NPM_TOKEN secret. The
     # trusted publisher on npmjs.com must name THIS workflow file
