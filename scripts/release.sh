@@ -45,8 +45,14 @@ case "${os}" in
     package target/release/pact-mcp-plugin.exe "pact-mcp-plugin-windows-x86_64.exe"
     ;;
   macOS)
-    cargo build --release
-    package target/release/pact-mcp-plugin "pact-mcp-plugin-osx-$(uname -m | sed 's/arm64/aarch64/')"
+    # Build BOTH arches on the Apple-Silicon runner (macos-13 Intel runners are
+    # unavailable on this account and stall the release). Cross-compiling to
+    # x86_64-apple-darwin from arm64 is reliable — same OS, universal SDK.
+    rustup target add aarch64-apple-darwin x86_64-apple-darwin
+    cargo build --release --target aarch64-apple-darwin
+    package target/aarch64-apple-darwin/release/pact-mcp-plugin "pact-mcp-plugin-osx-aarch64"
+    cargo build --release --target x86_64-apple-darwin
+    package target/x86_64-apple-darwin/release/pact-mcp-plugin "pact-mcp-plugin-osx-x86_64"
     ;;
   *)
     echo "${os} is not a recognised OS" >&2
