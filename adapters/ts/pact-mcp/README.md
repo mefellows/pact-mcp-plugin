@@ -51,16 +51,22 @@ strings, a different format. Matching itself is 100% in the Rust engine.)
 
 ## Provider
 
+`McpProviderVerifier` is a **thin wrapper over the standard pact-js `Verifier`**.
+It assembles the MCP transport config and forwards everything else, so you get
+Pact Broker / PactFlow fetch, `consumerVersionSelectors`, publishing verification
+results, `can-i-deploy`, provider states, and Pact's own reporting for free. The
+Rust engine participates as the installed Pact `mcp` plugin.
+
 ```ts
 import { McpProviderVerifier } from "@pactflow/pact-mcp-plugin";
 
-// stdio — the engine spawns your real server
+// stdio — the plugin spawns your real server per interaction
 await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
   .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
   .verify();
 
 // http — verify a running / deployed server, with auth
-await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/weather-agent-weather-mcp.json"] })
+await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/…json"] })
   .withServerTransport({
     type: "http",
     url: "https://mcp.example.com/mcp",
@@ -68,6 +74,32 @@ await new McpProviderVerifier({ provider: "weather-mcp", pactUrls: ["./pacts/wea
   })
   .verify();
 ```
+
+### From a Pact Broker / PactFlow (with publishing + `can-i-deploy`)
+
+```ts
+await new McpProviderVerifier({
+  provider: "weather-mcp",
+  providerVersion: process.env.GIT_SHA,
+  providerVersionBranch: process.env.GIT_BRANCH,
+  publishVerificationResult: true,
+})
+  .withServerTransport({ type: "stdio", command: "node", args: ["dist/server.js"] })
+  .fromPactBroker({
+    url: process.env.PACT_BROKER_BASE_URL!,
+    token: process.env.PACT_BROKER_TOKEN,
+    consumerVersionSelectors: [{ mainBranch: true }, { deployedOrReleased: true }],
+    enablePending: true,
+  })
+  .stateHandlers({ "weather is available": async (params) => seed(params) })
+  .verify();
+```
+
+`.verify()` resolves with the verifier output and **rejects with pact-js's own
+reporting** on failure. Need an option the wrapper doesn't model (request
+filters, hooks, custom headers)? Pass it straight through with
+`.withVerifierOptions({ ... })`. You can of course also use `new Verifier(...)`
+from `@pact-foundation/pact` directly — the wrapper is only convenience.
 
 ## HTTP + auth
 
